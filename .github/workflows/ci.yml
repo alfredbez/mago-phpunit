@@ -1,0 +1,31 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  suite:
+    name: PHPUnit ${{ matrix.phpunit }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        phpunit:
+          - "^12.0"
+          - "^10.5"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          coverage: none
+          extensions: curl, mbstring, xml, zip
+          tools: composer
+
+      - name: Install dependencies
+        run: composer update --no-interaction --prefer-dist --no-progress --with="phpunit/phpunit:${{ matrix.phpunit }}"
+
+      - name: Run suite
+        run: composer test

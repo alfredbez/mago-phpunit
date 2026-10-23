@@ -6,6 +6,7 @@ namespace AlfredBez\MagoPhpunit\Analyzer;
 
 use AlfredBez\MagoPhpunit\Analyzer\Providers\AssertArrayHasKeyAssertion;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\ContainsOnlyInstancesAssertion;
+use AlfredBez\MagoPhpunit\Analyzer\Providers\DataProviderArguments;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\SetUpInitializer;
 use Mago\Sdk\Analyzer\Plugin;
 use Mago\Sdk\Analyzer\PluginDefinition;
@@ -18,7 +19,7 @@ final class PhpUnitPlugin implements Plugin
         return new PluginDefinition(
             identifier: 'alfredbez/phpunit',
             name: 'PHPUnit',
-            description: 'Narrows PHPUnit assertions and treats setUp() as a test initializer.',
+            description: 'Narrows PHPUnit assertions, treats setUp() as a test initializer, and checks data-provider rows.',
             defaultEnabled: true,
         );
     }
@@ -28,5 +29,6 @@ final class PhpUnitPlugin implements Plugin
         $registry->registerMethodAssertionProvider(new AssertArrayHasKeyAssertion());
         $registry->registerMethodAssertionProvider(new ContainsOnlyInstancesAssertion());
         $registry->registerClassInitializerProvider(new SetUpInitializer());
+        $registry->registerClassLikeAnalysisHook(new DataProviderArguments());
     }
 }

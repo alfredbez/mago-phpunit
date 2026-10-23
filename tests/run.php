@@ -111,6 +111,16 @@ $expected[true]['tests/fixtures/ContainsOnly.php'] = $phpunitMajor >= 12
         'mixed-method-access' => 6,
         'mixed-return-statement' => 6,
     ];
+$dataProviderIssues = ['alfredbez/phpunit/phpunit-data-provider' => 14];
+// PHPUnit 10.5's DataProvider attribute takes only the method name. The
+// validateArgumentCount argument exists from PHPUnit 11 on, so 10.5 reports it.
+if ($phpunitMajor < 11) {
+    $dataProviderIssues['too-many-arguments'] = 1;
+}
+$expected[false]['tests/fixtures/DataProvider.php'] = $dataProviderIssues;
+$expected[true]['tests/fixtures/DataProvider.php'] = $phpunitMajor < 11
+    ? ['too-many-arguments' => 1]
+    : ['alfredbez/phpunit/phpunit-data-provider' => 0];
 
 foreach ([false => 'with extension', true => '--no-extensions'] as $disabled => $label) {
     $issues = $disabled ? $without : $with;
@@ -189,6 +199,39 @@ $failures += assertMessageCount(
     'Book',
     0,
 );
+
+$dataProvider = 'alfredbez/phpunit/phpunit-data-provider';
+$dataProviderFile = 'tests/fixtures/DataProvider.php';
+foreach ([
+    'which requires 2.' => 7,
+    'which accepts ' => 4,
+    'does not provide $label' => 1,
+    'unknown argument $extra' => 1,
+    'expects an argument list' => 1,
+    'for testTooManyAllowed()' => 0,
+    'builtRows()' => 0,
+    'for testMatching()' => 0,
+    'for testNotChecked()' => 0,
+    'optionalRows()' => 0,
+    'variadicRows()' => 0,
+    'for testTooFew()' => 1,
+    'for testTooMany()' => 1,
+    'yieldedRows()' => 3,
+    'docblockRows()' => 1,
+    'for testExternal()' => 1,
+    'parentRows()' => 1,
+    'for testRepeated()' => 1,
+    'variableRows()' => 2,
+    'conditionalRows()' => 1,
+] as $needle => $count) {
+    $failures += assertMessageCount('with extension', $with, $dataProviderFile, $dataProvider, $needle, $count);
+}
+foreach ($with as $issue) {
+    if ($issue['file'] === $dataProviderFile && $issue['code'] === $dataProvider && $issue['level'] !== 'Error') {
+        $failures++;
+        fwrite(STDERR, "FAIL with extension  {$dataProviderFile}  level {$issue['level']}\n");
+    }
+}
 
 if ($failures > 0) {
     fwrite(STDERR, "\n{$failures} assertion(s) failed\n");

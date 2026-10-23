@@ -2,9 +2,10 @@
 
 PHPUnit support for [Mago](https://github.com/carthage-software/mago). The package is an external analyzer extension: it teaches Mago about PHPUnit assertions and the test lifecycle. It does not change PHPUnit itself.
 
-This first version does two things:
+This first version does three things:
 
 - After `assertArrayHasKey()` with a literal string or integer key, Mago treats that key as present on the array argument. Calls may go through `$this`, `self::`, `static::`, or `PHPUnit\Framework\Assert::`. A non-literal key is not narrowed, and a different key stays uncertain.
+- `assertContainsOnlyInstancesOf(Foo::class, $items)` treats `$items` as an iterable of `Foo` when the class name is a literal class string. PHPUnit 12 already declares this with `@phpstan-assert`, and Mago honors that without an extension. PHPUnit 10.5 does not, so the extension supplies the same fact. A non-literal class name is left unchanged.
 - For subclasses of `PHPUnit\Framework\TestCase`, `setUp()` counts as a constructor when Mago checks property initialization. That includes `setUp()` inherited from a parent test class, and methods called from `setUp()`. A property that `setUp()` never assigns is still reported. `setUp()` on a class that does not extend `TestCase` is left alone.
 
 The extension follows Mago's worker model. This package exposes `AlfredBez\MagoPhpunit\PhpUnitExtension::create()`. The application owns the worker entrypoint.
@@ -75,6 +76,7 @@ composer test
 ## Limits
 
 - Only literal string and integer keys are narrowed. A variable, expression, or class-constant key contributes no fact.
+- `assertContainsOnlyInstancesOf()` only narrows a literal class string such as `Foo::class`.
 - `assertArrayNotHasKey()` and other assertions are not covered yet.
 - Mago's initializer analysis treats a property as initialized when `setUp()` assigns it on a reachable path. An assignment behind a condition that Mago cannot fold can therefore suppress `uninitialized-property` even though another path leaves the property unset. A property that `setUp()` never assigns is still reported.
 

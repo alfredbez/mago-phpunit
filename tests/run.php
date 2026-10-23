@@ -8,6 +8,10 @@ $failures = 0;
 
 $version = trim(run([PHP_BINARY, 'vendor/bin/mago', '--version'])['stdout']);
 $phpunit = trim(run([PHP_BINARY, 'vendor/bin/phpunit', '--version'])['stdout']);
+$phpunitMajor = 0;
+if (preg_match('/PHPUnit (\d+)/', $phpunit, $phpunitMatch) === 1) {
+    $phpunitMajor = (int) $phpunitMatch[1];
+}
 fwrite(STDOUT, $version . "\n" . $phpunit . "\n\n");
 
 $validated = run([PHP_BINARY, 'vendor/bin/mago', 'extension', 'validate']);
@@ -88,6 +92,26 @@ $expected = [
     ],
 ];
 
+// PHPUnit 12 already narrows assertContainsOnlyInstancesOf() via @phpstan-assert.
+// PHPUnit 10.5 does not, so only that line's --no-extensions run still reports the values as mixed.
+$containsOnlyNarrowed = [
+    'mixed-assignment' => 3,
+    'mixed-method-access' => 1,
+    'mixed-return-statement' => 2,
+    'non-existent-method' => 1,
+];
+if ($phpunitMajor >= 12) {
+    $containsOnlyNarrowed['possibly-invalid-argument'] = 1;
+}
+$expected[false]['tests/fixtures/ContainsOnly.php'] = $containsOnlyNarrowed;
+$expected[true]['tests/fixtures/ContainsOnly.php'] = $phpunitMajor >= 12
+    ? $containsOnlyNarrowed
+    : [
+        'mixed-assignment' => 12,
+        'mixed-method-access' => 6,
+        'mixed-return-statement' => 6,
+    ];
+
 foreach ([false => 'with extension', true => '--no-extensions'] as $disabled => $label) {
     $issues = $disabled ? $without : $with;
     $failures += assertHistograms($label, $issues, $expected[$disabled]);
@@ -148,6 +172,22 @@ $failures += assertMessageCount(
     'uninitialized-property',
     '$ready',
     1,
+);
+$failures += assertMessageCount(
+    'with extension',
+    $with,
+    'tests/fixtures/ContainsOnly.php',
+    'non-existent-method',
+    'PHPUnit\\Framework\\TestCase',
+    1,
+);
+$failures += assertMessageCount(
+    'with extension',
+    $with,
+    'tests/fixtures/ContainsOnly.php',
+    'non-existent-method',
+    'Book',
+    0,
 );
 
 if ($failures > 0) {

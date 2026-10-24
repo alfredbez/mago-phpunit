@@ -92,33 +92,42 @@ $expected = [
     ],
 ];
 
-// PHPUnit 12 already narrows assertContainsOnlyInstancesOf() via @phpstan-assert.
-// PHPUnit 10.5 does not, so only that line's --no-extensions run still reports the values as mixed.
+// PHPUnit 11.5 and later narrow assertContainsOnlyInstancesOf() via @phpstan-assert, so the
+// extension stays silent there and both runs match. PHPUnit 10.5 has no annotation, so only
+// its --no-extensions run still reports the values as mixed.
 $containsOnlyNarrowed = [
     'mixed-assignment' => 3,
     'mixed-method-access' => 1,
     'mixed-return-statement' => 2,
     'non-existent-method' => 1,
 ];
-if ($phpunitMajor >= 12) {
+if ($phpunitMajor >= 11) {
     $containsOnlyNarrowed['possibly-invalid-argument'] = 1;
 }
+// PHPUnit 13 declares `@template T of object`, so a non-literal class name narrows to iterable<object>.
+if ($phpunitMajor >= 13) {
+    $containsOnlyNarrowed['mixed-assignment'] = 2;
+    $containsOnlyNarrowed['mixed-method-access'] = 0;
+    $containsOnlyNarrowed['ambiguous-object-method-access'] = 1;
+}
 $expected[false]['tests/fixtures/ContainsOnly.php'] = $containsOnlyNarrowed;
-$expected[true]['tests/fixtures/ContainsOnly.php'] = $phpunitMajor >= 12
+$expected[true]['tests/fixtures/ContainsOnly.php'] = $phpunitMajor >= 11
     ? $containsOnlyNarrowed
     : [
         'mixed-assignment' => 12,
         'mixed-method-access' => 6,
         'mixed-return-statement' => 6,
     ];
-$dataProviderIssues = ['alfredbez/phpunit/phpunit-data-provider' => 14];
-// PHPUnit 10.5's DataProvider attribute takes only the method name. The
-// validateArgumentCount argument exists from PHPUnit 11 on, so 10.5 reports it.
-if ($phpunitMajor < 11) {
+// PHPUnit 12 removed doc-comment metadata, so the @dataProvider fixture is only checked before 12.
+$annotationsSupported = $phpunitMajor < 12;
+$dataProviderIssues = ['alfredbez/phpunit/phpunit-data-provider' => $annotationsSupported ? 14 : 13];
+// Up to PHPUnit 11.5 the DataProvider attribute takes only the method name. The
+// validateArgumentCount argument is a PHPUnit 12 addition, so earlier versions report it.
+if ($phpunitMajor < 12) {
     $dataProviderIssues['too-many-arguments'] = 1;
 }
 $expected[false]['tests/fixtures/DataProvider.php'] = $dataProviderIssues;
-$expected[true]['tests/fixtures/DataProvider.php'] = $phpunitMajor < 11
+$expected[true]['tests/fixtures/DataProvider.php'] = $phpunitMajor < 12
     ? ['too-many-arguments' => 1]
     : ['alfredbez/phpunit/phpunit-data-provider' => 0];
 
@@ -204,7 +213,7 @@ $dataProvider = 'alfredbez/phpunit/phpunit-data-provider';
 $dataProviderFile = 'tests/fixtures/DataProvider.php';
 foreach ([
     'which requires 2.' => 7,
-    'which accepts ' => 4,
+    'which accepts ' => $annotationsSupported ? 4 : 3,
     'does not provide $label' => 1,
     'unknown argument $extra' => 1,
     'expects an argument list' => 1,
@@ -217,7 +226,7 @@ foreach ([
     'for testTooFew()' => 1,
     'for testTooMany()' => 1,
     'yieldedRows()' => 3,
-    'docblockRows()' => 1,
+    'docblockRows()' => $annotationsSupported ? 1 : 0,
     'for testExternal()' => 1,
     'parentRows()' => 1,
     'for testRepeated()' => 1,

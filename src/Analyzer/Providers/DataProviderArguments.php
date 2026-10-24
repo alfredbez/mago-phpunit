@@ -38,6 +38,9 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
 
     private const TEST_CASE = 'phpunit\\framework\\testcase';
 
+    /** PHPUnit 12 removed doc-comment metadata, so `@dataProvider` is only read where this class exists. */
+    private const ANNOTATION_PARSER = 'PHPUnit\\Metadata\\Parser\\AnnotationParser';
+
     public function getTargets(): array
     {
         return [
@@ -219,6 +222,10 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
                 'method' => $provider,
                 'validateCount' => $this->validateArgumentCount($source, $arguments[2] ?? null),
             ];
+        }
+
+        if (!$context->codebase->classExists(self::ANNOTATION_PARSER)) {
+            return $references;
         }
 
         $docblock = $this->attachedDocblock($source, $method);

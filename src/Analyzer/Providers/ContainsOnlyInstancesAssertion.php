@@ -16,8 +16,9 @@ use Mago\Sdk\Analyzer\Type\IterableType;
 /**
  * assertContainsOnlyInstancesOf(Foo::class, $items) means $items is an iterable of Foo.
  *
- * PHPUnit 12 documents this with @phpstan-assert, which Mago already understands.
- * PHPUnit 10.5 does not, so the extension supplies the same fact.
+ * PHPUnit 11.5 and later document this with @phpstan-assert, which Mago already understands.
+ * PHPUnit 10.5 does not, so the extension supplies the same fact only when the
+ * installed Assert method carries no assertion of its own for $haystack.
  */
 final class ContainsOnlyInstancesAssertion implements MethodAssertionProvider
 {
@@ -30,6 +31,11 @@ final class ContainsOnlyInstancesAssertion implements MethodAssertionProvider
 
     public function getAssertions(AssertionProviderContext $context): ?InvocationAssertions
     {
+        $method = $context->codebase->getMethod('PHPUnit\\Framework\\Assert', 'assertContainsOnlyInstancesOf');
+        if (($method?->assertions['$haystack'] ?? []) !== []) {
+            return null;
+        }
+
         $class = $context->invocation->getArgument(0, 'className')?->type?->getLiteralClassString();
         if ($class === null) {
             return null;

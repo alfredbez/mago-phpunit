@@ -118,6 +118,16 @@ $expected[true]['tests/fixtures/ContainsOnly.php'] = $phpunitMajor >= 11
         'mixed-method-access' => 6,
         'mixed-return-statement' => 6,
     ];
+// PHPUnit 10.5 declares @psalm-assert on assertInstanceOf(), assertNull(), and assertSame(),
+// and PHPUnit 11.5 and later declare @phpstan-assert. Mago narrows all three without an extension.
+$nativeAssertions = [
+    'possibly-invalid-argument' => 1,
+    'less-specific-return-statement' => 1,
+    'nullable-return-statement' => 2,
+    'invalid-return-statement' => 4,
+];
+$expected[false]['tests/fixtures/NativeAssertions.php'] = $nativeAssertions;
+$expected[true]['tests/fixtures/NativeAssertions.php'] = $nativeAssertions;
 // PHPUnit 12 removed doc-comment metadata, so the @dataProvider fixture is only checked before 12.
 $annotationsSupported = $phpunitMajor < 12;
 $dataProviderIssues = ['alfredbez/phpunit/phpunit-data-provider' => $annotationsSupported ? 14 : 13];
@@ -220,6 +230,49 @@ $failures += assertMessageCount(
     'Book',
     0,
 );
+foreach ([false => $with, true => $without] as $disabled => $issues) {
+    $label = $disabled ? '--no-extensions' : 'with extension';
+    $failures += assertMessageCount(
+        $label,
+        $issues,
+        'tests/fixtures/NativeAssertions.php',
+        'less-specific-return-statement',
+        'testInstanceOfNonLiteral',
+        1,
+    );
+    $failures += assertMessageCount(
+        $label,
+        $issues,
+        'tests/fixtures/NativeAssertions.php',
+        'invalid-return-statement',
+        'testInstanceOfOtherVariable',
+        1,
+    );
+    $failures += assertMessageCount(
+        $label,
+        $issues,
+        'tests/fixtures/NativeAssertions.php',
+        'invalid-return-statement',
+        'testNullOtherVariable',
+        1,
+    );
+    $failures += assertMessageCount(
+        $label,
+        $issues,
+        'tests/fixtures/NativeAssertions.php',
+        'invalid-return-statement',
+        'testSameUnknownExpected',
+        1,
+    );
+    $failures += assertMessageCount(
+        $label,
+        $issues,
+        'tests/fixtures/NativeAssertions.php',
+        'invalid-return-statement',
+        'testSameOtherVariable',
+        1,
+    );
+}
 
 $dataProvider = 'alfredbez/phpunit/phpunit-data-provider';
 $dataProviderFile = 'tests/fixtures/DataProvider.php';

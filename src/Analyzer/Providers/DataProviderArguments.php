@@ -9,12 +9,15 @@ use Mago\Sdk\Analyzer\ClassLikeTarget;
 use Mago\Sdk\Analyzer\FileAnalysisRequirement;
 use Mago\Sdk\Analyzer\Metadata\FunctionLikeMetadata;
 use Mago\Sdk\Analyzer\Metadata\MetadataFlags;
+use Mago\Sdk\Analyzer\Metadata\ParameterMetadata;
 use Mago\Sdk\Analyzer\NodeAnalysisContext;
 use Mago\Sdk\Analyzer\Type;
 use Mago\Sdk\Analyzer\Type\ArrayKeyKind;
 use Mago\Sdk\Analyzer\Type\KeyedArrayType;
 use Mago\Sdk\Analyzer\Type\ListType;
 use Mago\Sdk\Analyzer\Type\MixedType;
+use Mago\Sdk\Analyzer\Type\SimpleAtomicType;
+use Mago\Sdk\Analyzer\Type\SimpleAtomicTypeKind;
 use Mago\Sdk\Reporting\Issue;
 use Mago\Sdk\Reporting\Level;
 use Mago\Sdk\SourceLocation;
@@ -25,7 +28,7 @@ use Mago\Sdk\Syntax\SourceFile;
 use Mago\Sdk\Syntax\TriviaKind;
 
 /**
- * Reports data-provider rows whose arity cannot match the test method.
+ * Reports data-provider rows whose arity or argument types cannot match the test method.
  *
  * Method metadata only keeps the declared return type (`array`, `iterable`), so
  * row shapes are read from the inferred type of each literal return or yield.
@@ -283,7 +286,16 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
     }
 
     /**
-     * @param array{required: int, accepted: int, variadic: bool, names: list<string>, requiredNames: list<string>} $schema
+     * @param array{
+     *     required: int,
+     *     accepted: int,
+     *     variadic: bool,
+     *     names: list<string>,
+     *     requiredNames: list<string>,
+     *     positional: list<array{name: string, type: ?Type}>,
+     *     named: array<string, ?Type>,
+     *     variadicParameter: ?array{name: string, type: ?Type},
+     * } $schema
      */
     private function checkProvider(
         NodeAnalysisContext $context,
@@ -398,7 +410,16 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
     }
 
     /**
-     * @param array{required: int, accepted: int, variadic: bool, names: list<string>, requiredNames: list<string>} $schema
+     * @param array{
+     *     required: int,
+     *     accepted: int,
+     *     variadic: bool,
+     *     names: list<string>,
+     *     requiredNames: list<string>,
+     *     positional: list<array{name: string, type: ?Type}>,
+     *     named: array<string, ?Type>,
+     *     variadicParameter: ?array{name: string, type: ?Type},
+     * } $schema
      */
     private function checkRow(
         NodeAnalysisContext $context,
@@ -410,8 +431,9 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
         array $schema,
         bool $validateCount,
     ): void {
-        $names = $this->namedArguments($type);
-        if ($names !== null) {
+        $named = $this->namedArguments($type);
+        if ($named !== null) {
+            $names = array_keys($named);
             $missing = [];
             foreach ($schema['requiredNames'] as $name) {
                 if (!in_array($name, $names, true)) {
@@ -446,11 +468,29 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
                 ));
             }
 
+            foreach ($named as $name => $argumentType) {
+                $parameterType = $schema['named'][$name] ?? null;
+                if ($parameterType === null) {
+                    continue;
+                }
+
+                $this->checkArgumentType(
+                    $context,
+                    $span,
+                    $label,
+                    $test,
+                    $provider,
+                    $name,
+                    $parameterType,
+                    $argumentType,
+                );
+            }
+
             return;
         }
 
-        $count = $this->positionalCount($type);
-        if ($count === null) {
+        $arguments = $this->positionalArguments($type);
+        if ($arguments === null) {
             if ($this->isDefinitelyNotArray($type)) {
                 $this->report($context, $span, sprintf(
                     'Data provider %s() row %s provides %s for %s(), which expects an argument list.',
@@ -464,6 +504,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
             return;
         }
 
+        $count = count($arguments);
         if ($count < $schema['required']) {
             $this->report($context, $span, sprintf(
                 'Data provider %s() row %s provides %d %s for %s(), which requires %d.',
@@ -474,11 +515,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
                 $test,
                 $schema['required'],
             ));
-
-            return;
-        }
-
-        if ($validateCount && !$schema['variadic'] && $count > $schema['accepted']) {
+        } elseif ($validateCount && !$schema['variadic'] && $count > $schema['accepted']) {
             $this->report($context, $span, sprintf(
                 'Data provider %s() row %s provides %d arguments for %s(), which accepts %d.',
                 $provider,
@@ -488,10 +525,65 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
                 $schema['accepted'],
             ));
         }
+
+        foreach ($arguments as $index => $argumentType) {
+            $parameter = $schema['positional'][$index] ?? $schema['variadicParameter'];
+            if ($parameter === null || $parameter['type'] === null) {
+                continue;
+            }
+
+            $this->checkArgumentType(
+                $context,
+                $span,
+                $label,
+                $test,
+                $provider,
+                $parameter['name'],
+                $parameter['type'],
+                $argumentType,
+            );
+        }
+    }
+
+    private function checkArgumentType(
+        NodeAnalysisContext $context,
+        Span $span,
+        string $label,
+        string $test,
+        string $provider,
+        string $parameterName,
+        Type $parameterType,
+        Type $argumentType,
+    ): void {
+        if (!$this->isCheckableType($argumentType)) {
+            return;
+        }
+        if ($context->types->isContainedBy($argumentType, $parameterType)) {
+            return;
+        }
+
+        $this->report($context, $span, sprintf(
+            'Data provider %s() row %s provides %s for $%s of %s(), which expects %s.',
+            $provider,
+            $label,
+            (string) $argumentType,
+            $parameterName,
+            $test,
+            (string) $parameterType,
+        ));
     }
 
     /**
-     * @return array{required: int, accepted: int, variadic: bool, names: list<string>, requiredNames: list<string>}
+     * @return array{
+     *     required: int,
+     *     accepted: int,
+     *     variadic: bool,
+     *     names: list<string>,
+     *     requiredNames: list<string>,
+     *     positional: list<array{name: string, type: ?Type}>,
+     *     named: array<string, ?Type>,
+     *     variadicParameter: ?array{name: string, type: ?Type},
+     * }
      */
     private function parameterSchema(FunctionLikeMetadata $method): array
     {
@@ -500,14 +592,21 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
         $variadic = false;
         $names = [];
         $requiredNames = [];
+        $positional = [];
+        $named = [];
+        $variadicParameter = null;
         foreach ($method->parameters as $parameter) {
             $name = ltrim($parameter->name, '$');
+            $type = $this->parameterType($parameter);
             if ($parameter->flags->contains(MetadataFlags::VARIADIC)) {
                 $variadic = true;
+                $variadicParameter = ['name' => $name, 'type' => $type];
                 continue;
             }
 
             $names[] = $name;
+            $positional[] = ['name' => $name, 'type' => $type];
+            $named[$name] = $type;
             $accepted++;
             if (!$parameter->flags->contains(MetadataFlags::HAS_DEFAULT)) {
                 $required++;
@@ -521,10 +620,48 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
             'variadic' => $variadic,
             'names' => $names,
             'requiredNames' => $requiredNames,
+            'positional' => $positional,
+            'named' => $named,
+            'variadicParameter' => $variadicParameter,
         ];
     }
 
-    private function positionalCount(Type $type): ?int
+    private function parameterType(ParameterMetadata $parameter): ?Type
+    {
+        $type = $parameter->declaredType?->type ?? $parameter->type?->type;
+        if ($type === null || !$this->isCheckableType($type)) {
+            return null;
+        }
+
+        return $type;
+    }
+
+    private function isCheckableType(Type $type): bool
+    {
+        if ($type->atomicTypes === []) {
+            return false;
+        }
+
+        foreach ($type->atomicTypes as $atomic) {
+            if ($atomic instanceof MixedType) {
+                return false;
+            }
+            if (
+                $atomic instanceof SimpleAtomicType
+                && (
+                    $atomic->kind === SimpleAtomicTypeKind::Never
+                    || $atomic->kind === SimpleAtomicTypeKind::Placeholder
+                )
+            ) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /** @return list<Type>|null */
+    private function positionalArguments(Type $type): ?array
     {
         if (count($type->atomicTypes) !== 1) {
             return null;
@@ -540,36 +677,43 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
                 return null;
             }
 
+            $arguments = [];
             foreach ($atomic->knownElements as $element) {
                 if ($element->optional) {
                     return null;
                 }
+                $arguments[$element->index] = $element->type;
             }
 
-            return $atomic->knownCount;
+            ksort($arguments);
+            if (array_keys($arguments) !== ($arguments === [] ? [] : range(0, count($arguments) - 1))) {
+                return null;
+            }
+
+            return array_values($arguments);
         }
 
         if (!$atomic instanceof KeyedArrayType || !$this->isClosedShape($atomic)) {
             return null;
         }
 
-        $keys = [];
+        $arguments = [];
         foreach ($atomic->knownItems ?? [] as $item) {
             if ($item->key->kind !== ArrayKeyKind::Integer || !is_int($item->key->value)) {
                 return null;
             }
-            $keys[] = $item->key->value;
+            $arguments[$item->key->value] = $item->type;
         }
 
-        sort($keys);
-        if ($keys !== ($keys === [] ? [] : range(0, count($keys) - 1))) {
+        ksort($arguments);
+        if (array_keys($arguments) !== ($arguments === [] ? [] : range(0, count($arguments) - 1))) {
             return null;
         }
 
-        return count($keys);
+        return array_values($arguments);
     }
 
-    /** @return list<string>|null */
+    /** @return array<string, Type>|null */
     private function namedArguments(Type $type): ?array
     {
         if (count($type->atomicTypes) !== 1 || !$type->atomicTypes[0] instanceof KeyedArrayType) {
@@ -581,15 +725,15 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
             return null;
         }
 
-        $names = [];
+        $arguments = [];
         foreach ($shape->knownItems ?? [] as $item) {
             if ($item->key->kind !== ArrayKeyKind::String || !is_string($item->key->value)) {
                 return null;
             }
-            $names[] = $item->key->value;
+            $arguments[$item->key->value] = $item->type;
         }
 
-        return $names;
+        return $arguments;
     }
 
     private function isClosedShape(KeyedArrayType $shape): bool

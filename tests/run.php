@@ -130,6 +130,12 @@ $expected[false]['tests/fixtures/DataProvider.php'] = $dataProviderIssues;
 $expected[true]['tests/fixtures/DataProvider.php'] = $phpunitMajor < 12
     ? ['too-many-arguments' => 1]
     : ['alfredbez/phpunit/phpunit-data-provider' => 0];
+$expected[false]['tests/fixtures/DataProviderTypes.php'] = [
+    'alfredbez/phpunit/phpunit-data-provider' => 6,
+];
+$expected[true]['tests/fixtures/DataProviderTypes.php'] = [
+    'alfredbez/phpunit/phpunit-data-provider' => 0,
+];
 
 foreach ([false => 'with extension', true => '--no-extensions'] as $disabled => $label) {
     $issues = $disabled ? $without : $with;
@@ -235,10 +241,28 @@ foreach ([
 ] as $needle => $count) {
     $failures += assertMessageCount('with extension', $with, $dataProviderFile, $dataProvider, $needle, $count);
 }
+$dataProviderTypesFile = 'tests/fixtures/DataProviderTypes.php';
+foreach ([
+    'stringForInt() row #0 provides string for $n of testStringForInt(), which expects int.' => 1,
+    'stringForInt() row "swapped" provides string for $n of testStringForInt(), which expects int.' => 1,
+    'stringForInt() row "swapped" provides int for $label of testStringForInt(), which expects string.' => 1,
+    'yieldedStringForInt() row #1 provides string for $n of testYieldedStringForInt(), which expects int.' => 1,
+    'namedWrongType() row #0 provides float for $n of testNamedWrongType(), which expects int.' => 1,
+    'variadicWrongType() row #0 provides int for $rest of testVariadicWrongType(), which expects string.' => 1,
+    'compatibleRows()' => 0,
+    'looseRows()' => 0,
+    'nonLiteralRows()' => 0,
+] as $needle => $count) {
+    $failures += assertMessageCount('with extension', $with, $dataProviderTypesFile, $dataProvider, $needle, $count);
+}
 foreach ($with as $issue) {
-    if ($issue['file'] === $dataProviderFile && $issue['code'] === $dataProvider && $issue['level'] !== 'Error') {
+    if (
+        ($issue['file'] === $dataProviderFile || $issue['file'] === $dataProviderTypesFile)
+        && $issue['code'] === $dataProvider
+        && $issue['level'] !== 'Error'
+    ) {
         $failures++;
-        fwrite(STDERR, "FAIL with extension  {$dataProviderFile}  level {$issue['level']}\n");
+        fwrite(STDERR, "FAIL with extension  {$issue['file']}  level {$issue['level']}\n");
     }
 }
 

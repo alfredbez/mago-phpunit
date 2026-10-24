@@ -136,6 +136,12 @@ $expected[false]['tests/fixtures/DataProviderTypes.php'] = [
 $expected[true]['tests/fixtures/DataProviderTypes.php'] = [
     'alfredbez/phpunit/phpunit-data-provider' => 0,
 ];
+$expected[false]['tests/fixtures/DataProviderYieldFrom.php'] = [
+    'alfredbez/phpunit/phpunit-data-provider' => 6,
+];
+$expected[true]['tests/fixtures/DataProviderYieldFrom.php'] = [
+    'alfredbez/phpunit/phpunit-data-provider' => 0,
+];
 
 foreach ([false => 'with extension', true => '--no-extensions'] as $disabled => $label) {
     $issues = $disabled ? $without : $with;
@@ -255,9 +261,26 @@ foreach ([
 ] as $needle => $count) {
     $failures += assertMessageCount('with extension', $with, $dataProviderTypesFile, $dataProvider, $needle, $count);
 }
+$dataProviderYieldFromFile = 'tests/fixtures/DataProviderYieldFrom.php';
+foreach ([
+    'wrongCountRows() row #1 provides 1 argument for testWrongCount(), which requires 2.' => 1,
+    'wrongCountRows() row "tooMany" provides 3 arguments for testWrongCount(), which accepts 2.' => 1,
+    'namedRows() row "second" provides unknown argument $extra for testNamed().' => 1,
+    'wrongTypeRows() row #1 provides string for $n of testWrongType(), which expects int.' => 1,
+    'mixedRows() row #0 provides 1 argument for testMixed(), which requires 2.' => 1,
+    'mixedRows() row "fromKey" provides int for $label of testMixed(), which expects string.' => 1,
+    'matchingRows()' => 0,
+    'nonLiteralRows()' => 0,
+] as $needle => $count) {
+    $failures += assertMessageCount('with extension', $with, $dataProviderYieldFromFile, $dataProvider, $needle, $count);
+}
 foreach ($with as $issue) {
     if (
-        ($issue['file'] === $dataProviderFile || $issue['file'] === $dataProviderTypesFile)
+        (
+            $issue['file'] === $dataProviderFile
+            || $issue['file'] === $dataProviderTypesFile
+            || $issue['file'] === $dataProviderYieldFromFile
+        )
         && $issue['code'] === $dataProvider
         && $issue['level'] !== 'Error'
     ) {

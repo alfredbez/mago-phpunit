@@ -316,6 +316,20 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
 
         if ($yields !== []) {
             foreach ($yields as $index => $yield) {
+                $collection = $this->yieldFromArrayExpression($source, $yield);
+                if ($collection !== null) {
+                    $type = $context->analysis->getExpressionType($collection);
+                    if ($type === null) {
+                        continue;
+                    }
+
+                    foreach ($this->rowsFromCollection($source, $collection, $type) as $row) {
+                        $this->checkRow($context, $row['type'], $row['span'], $row['label'], $test, $providerName, $schema, $validateCount);
+                    }
+
+                    continue;
+                }
+
                 $expression = $this->valueExpression($source, $yield);
                 if ($expression === null) {
                     continue;
@@ -816,6 +830,39 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
         }
 
         return null;
+    }
+
+    private function yieldFromArrayExpression(SourceFile $source, Node $node): ?Node
+    {
+        foreach ($source->getChildren($node) as $child) {
+            if ($child->kind !== NodeKind::YieldFrom) {
+                continue;
+            }
+
+            $expression = $this->valueExpression($source, $child);
+            if ($expression === null || !$this->isLiteralArray($source, $expression)) {
+                return null;
+            }
+
+            return $expression;
+        }
+
+        return null;
+    }
+
+    private function isLiteralArray(SourceFile $source, Node $expression): bool
+    {
+        if ($expression->kind === NodeKind::Array || $expression->kind === NodeKind::LegacyArray) {
+            return true;
+        }
+
+        foreach ($source->getChildren($expression) as $child) {
+            if ($child->kind === NodeKind::Array || $child->kind === NodeKind::LegacyArray) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function isNestedCallable(SourceFile $source, Node $method, Node $node): bool

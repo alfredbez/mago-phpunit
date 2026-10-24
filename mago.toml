@@ -1,0 +1,16 @@
+# Configuration for this repository's fixture suite. Applications write their own.
+version = "1"
+php-version = "8.5"
+
+[source]
+paths = ["tests/fixtures"]
+includes = ["vendor/phpunit/phpunit/src"]
+
+[analyzer]
+find-unused-definitions = false
+find-unused-expressions = false
+check-property-initialization = true
+
+[extension-hosts.phpunit]
+command = ["php", "tests/worker.php"]
+workers = 1

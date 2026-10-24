@@ -152,6 +152,40 @@ $expected[false]['tests/fixtures/DataProviderYieldFrom.php'] = [
 $expected[true]['tests/fixtures/DataProviderYieldFrom.php'] = [
     'alfredbez/phpunit/phpunit-data-provider' => 0,
 ];
+// PHPUnit 13.1 introduced #[DataProviderClosure]. Earlier versions report the missing attribute class,
+// and the extension adds no issues there.
+$closureProviderSupported = is_file('vendor/phpunit/phpunit/src/Framework/Attributes/DataProviderClosure.php');
+$expected[false]['tests/fixtures/DataProviderClosurePositive.php'] = $closureProviderSupported
+    ? [
+        'alfredbez/phpunit/phpunit-data-provider' => 12,
+    ]
+    : [
+        'alfredbez/phpunit/phpunit-data-provider' => 0,
+        'non-existent-attribute-class' => 8,
+    ];
+$expected[true]['tests/fixtures/DataProviderClosurePositive.php'] = $closureProviderSupported
+    ? [
+        'alfredbez/phpunit/phpunit-data-provider' => 0,
+    ]
+    : [
+        'alfredbez/phpunit/phpunit-data-provider' => 0,
+        'non-existent-attribute-class' => 8,
+    ];
+$closureCounterIssues = $closureProviderSupported
+    ? [
+        'alfredbez/phpunit/phpunit-data-provider' => 0,
+        'named-argument-not-allowed' => 2,
+        'undefined-variable' => 1,
+        'undefined-variable-in-closure-use' => 1,
+    ]
+    : [
+        'alfredbez/phpunit/phpunit-data-provider' => 0,
+        'non-existent-attribute-class' => 9,
+        'undefined-variable' => 1,
+        'undefined-variable-in-closure-use' => 1,
+    ];
+$expected[false]['tests/fixtures/DataProviderClosureCounter.php'] = $closureCounterIssues;
+$expected[true]['tests/fixtures/DataProviderClosureCounter.php'] = $closureCounterIssues;
 
 foreach ([false => 'with extension', true => '--no-extensions'] as $disabled => $label) {
     $issues = $disabled ? $without : $with;
@@ -327,12 +361,45 @@ foreach ([
 ] as $needle => $count) {
     $failures += assertMessageCount('with extension', $with, $dataProviderYieldFromFile, $dataProvider, $needle, $count);
 }
+$dataProviderClosurePositiveFile = 'tests/fixtures/DataProviderClosurePositive.php';
+$closureExpected = $closureProviderSupported ? 1 : 0;
+foreach ([
+    'closure() row #1 provides 1 argument for testReturnCount(), which requires 2.' => $closureExpected,
+    'closure() row "tooMany" provides 3 arguments for testReturnCount(), which accepts 2.' => $closureExpected,
+    'closure() row #1 provides 1 argument for testYieldCount(), which requires 2.' => $closureExpected,
+    'closure() row #2 provides string for testYieldCount(), which expects an argument list.' => $closureExpected,
+    'closure() row #1 provides 1 argument for testYieldFromCount(), which requires 2.' => $closureExpected,
+    'closure() row #1 does not provide $label for testNamedParameters().' => $closureExpected,
+    'closure() row "extraKey" provides unknown argument $extra for testNamedParameters().' => $closureExpected,
+    'closure() row #0 provides string for $n of testWrongTypes(), which expects int.' => $closureExpected,
+    'closure() row #0 provides int for $label of testWrongTypes(), which expects string.' => $closureExpected,
+    'closure() row "fromWrong" provides float for $n of testWrongTypes(), which expects int.' => $closureExpected,
+    'closure() row #0 provides 1 argument for testMixedWithMethod(), which requires 2.' => $closureExpected,
+    'closure() row #0 provides string for $n of testValidateCountFalseKeepsTypeCheck(), which expects int.' => $closureExpected,
+    'testValidateCountFalseKeepsTypeCheck(), which accepts' => 0,
+    'validMethodRows()' => 0,
+] as $needle => $count) {
+    $failures += assertMessageCount('with extension', $with, $dataProviderClosurePositiveFile, $dataProvider, $needle, $count);
+}
+$dataProviderClosureCounterFile = 'tests/fixtures/DataProviderClosureCounter.php';
+foreach ([
+    'testMatching()' => 0,
+    'testTooManyAllowedPositional()' => 0,
+    'testTooManyAllowedNamed()' => 0,
+    'testNonLiteralBody()' => 0,
+    'testClosureWithUse()' => 0,
+    'testNotChecked()' => 0,
+] as $needle => $count) {
+    $failures += assertMessageCount('with extension', $with, $dataProviderClosureCounterFile, $dataProvider, $needle, $count);
+}
 foreach ($with as $issue) {
     if (
         (
             $issue['file'] === $dataProviderFile
             || $issue['file'] === $dataProviderTypesFile
             || $issue['file'] === $dataProviderYieldFromFile
+            || $issue['file'] === $dataProviderClosurePositiveFile
+            || $issue['file'] === $dataProviderClosureCounterFile
         )
         && $issue['code'] === $dataProvider
         && $issue['level'] !== 'Error'

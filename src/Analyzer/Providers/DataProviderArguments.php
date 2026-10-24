@@ -37,6 +37,8 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
 {
     private const DATA_PROVIDER = 'phpunit\\framework\\attributes\\dataprovider';
 
+    private const DATA_PROVIDER_CLOSURE = 'phpunit\\framework\\attributes\\dataproviderclosure';
+
     private const DATA_PROVIDER_EXTERNAL = 'phpunit\\framework\\attributes\\dataproviderexternal';
 
     private const TEST_CASE = 'phpunit\\framework\\testcase';
@@ -84,17 +86,18 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
             $testLabel = $this->methodLabel($source, $node);
             $schema = $this->parameterSchema($test);
             foreach ($this->providerReferences($context, $source, $node, $className) as $provider) {
-                $providerNode = $this->locateMethod($context, $methods, $provider['class'], $provider['method']);
+                $providerNode = $provider['node'] ?? $this->locateMethod($context, $methods, $provider['class'], $provider['method']);
                 if ($providerNode === null) {
                     continue;
                 }
 
+                $providerLabel = $provider['node'] !== null ? 'closure' : $this->methodLabel($source, $providerNode);
                 $this->checkProvider(
                     $context,
                     $source,
                     $providerNode,
                     $testLabel,
-                    $this->methodLabel($source, $providerNode),
+                    $providerLabel,
                     $schema,
                     $provider['validateCount'],
                 );
@@ -183,48 +186,100 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
     }
 
     /**
-     * @return list<array{class: string, method: string, validateCount: bool}>
+     * @return list<array{class: string, method: string, node: ?Node, validateCount: bool}>
      */
     private function providerReferences(NodeAnalysisContext $context, SourceFile $source, Node $method, string $className): array
     {
         $references = [];
-        foreach ($source->getDescendants($method, NodeKind::Attribute) as $attribute) {
-            $name = $this->attributeName($source, $attribute);
-            if ($name === null) {
+        foreach ($source->getChildren($method) as $attributeList) {
+            if ($attributeList->kind !== NodeKind::AttributeList) {
                 continue;
             }
 
-            $normalized = strtolower($name);
-            $arguments = $this->attributeArguments($source, $attribute);
-            if ($normalized === self::DATA_PROVIDER) {
-                $provider = $this->literalString($source, $arguments[0] ?? null);
-                if ($provider === null || $provider === '') {
+            foreach ($source->getChildren($attributeList) as $attribute) {
+                if ($attribute->kind !== NodeKind::Attribute) {
+                    continue;
+                }
+
+                $name = $this->attributeName($source, $attribute);
+                if ($name === null) {
+                    continue;
+                }
+
+                $normalized = strtolower($name);
+                $arguments = $this->attributeArguments($source, $attribute);
+                if ($normalized === self::DATA_PROVIDER) {
+                    $provider = $this->literalString(
+                        $source,
+                        $this->attributeArgument($source, $arguments, 0, 'methodName'),
+                    );
+                    if ($provider === null || $provider === '') {
+                        continue;
+                    }
+
+                    $references[] = [
+                        'class' => $className,
+                        'method' => $provider,
+                        'node' => null,
+                        'validateCount' => $this->validateArgumentCount(
+                            $source,
+                            $this->attributeArgument($source, $arguments, 1, 'validateArgumentCount'),
+                        ),
+                    ];
+                    continue;
+                }
+
+                if ($normalized === self::DATA_PROVIDER_CLOSURE) {
+                    if (!$context->codebase->classExists(self::DATA_PROVIDER_CLOSURE)) {
+                        continue;
+                    }
+
+                    $closure = $this->closureArgument(
+                        $source,
+                        $this->attributeArgument($source, $arguments, 0, 'closure'),
+                    );
+                    if ($closure === null) {
+                        continue;
+                    }
+
+                    $references[] = [
+                        'class' => '',
+                        'method' => '',
+                        'node' => $closure,
+                        'validateCount' => $this->validateArgumentCount(
+                            $source,
+                            $this->attributeArgument($source, $arguments, 1, 'validateArgumentCount'),
+                        ),
+                    ];
+                    continue;
+                }
+
+                if ($normalized !== self::DATA_PROVIDER_EXTERNAL) {
+                    continue;
+                }
+
+                $classArgument = $this->attributeArgument($source, $arguments, 0, 'className');
+                $methodArgument = $this->attributeArgument($source, $arguments, 1, 'methodName');
+                if ($classArgument === null || $methodArgument === null) {
+                    continue;
+                }
+
+                $providerClass = $this->referencedClass($context, $source, $classArgument);
+                $provider = $this->literalString($source, $methodArgument);
+                if ($providerClass === null || $provider === null || $provider === '') {
                     continue;
                 }
 
                 $references[] = [
-                    'class' => $className,
+                    'class' => $providerClass,
                     'method' => $provider,
-                    'validateCount' => $this->validateArgumentCount($source, $arguments[1] ?? null),
+                    'node' => null,
+                    'validateCount' => $this->validateArgumentCount(
+                        $source,
+                        $this->attributeArgument($source, $arguments, 2, 'validateArgumentCount'),
+                    ),
                 ];
-                continue;
             }
-
-            if ($normalized !== self::DATA_PROVIDER_EXTERNAL || !isset($arguments[0], $arguments[1])) {
-                continue;
-            }
-
-            $providerClass = $this->referencedClass($context, $source, $arguments[0]);
-            $provider = $this->literalString($source, $arguments[1]);
-            if ($providerClass === null || $provider === null || $provider === '') {
-                continue;
-            }
-
-            $references[] = [
-                'class' => $providerClass,
-                'method' => $provider,
-                'validateCount' => $this->validateArgumentCount($source, $arguments[2] ?? null),
-            ];
         }
 
         if (!$context->codebase->classExists(self::ANNOTATION_PARSER)) {
@@ -255,6 +310,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
             $references[] = [
                 'class' => $resolved['class'],
                 'method' => $resolved['method'],
+                'node' => null,
                 'validateCount' => true,
             ];
         }
@@ -865,12 +921,12 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
         return false;
     }
 
-    private function isNestedCallable(SourceFile $source, Node $method, Node $node): bool
+    private function isNestedCallable(SourceFile $source, Node $provider, Node $node): bool
     {
         $current = $node;
-        while ($current !== $method) {
+        while ($current !== $provider) {
             $parent = $source->getParent($current);
-            if ($parent === null) {
+            if ($parent === null || $parent === $provider) {
                 return false;
             }
             if (
@@ -914,13 +970,80 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
     private function attributeArguments(SourceFile $source, Node $attribute): array
     {
         $arguments = [];
-        foreach ([NodeKind::PositionalArgument, NodeKind::NamedArgument] as $kind) {
-            foreach ($source->getDescendants($attribute, $kind) as $argument) {
-                $arguments[] = $argument;
+        foreach ($source->getChildren($attribute) as $list) {
+            if ($list->kind !== NodeKind::PartialArgumentList && $list->kind !== NodeKind::ArgumentList) {
+                continue;
+            }
+
+            foreach ($source->getChildren($list) as $item) {
+                foreach ($source->getChildren($item) as $argument) {
+                    if ($argument->kind === NodeKind::PositionalArgument || $argument->kind === NodeKind::NamedArgument) {
+                        $arguments[] = $argument;
+                    }
+                }
             }
         }
 
         return $arguments;
+    }
+
+    /** @param list<Node> $arguments */
+    private function attributeArgument(SourceFile $source, array $arguments, int $position, string $name): ?Node
+    {
+        foreach ($arguments as $argument) {
+            if ($argument->kind === NodeKind::NamedArgument && $this->argumentName($source, $argument) === $name) {
+                return $argument;
+            }
+        }
+
+        $index = 0;
+        foreach ($arguments as $argument) {
+            if ($argument->kind === NodeKind::NamedArgument) {
+                continue;
+            }
+            if ($index++ === $position) {
+                return $argument;
+            }
+        }
+
+        return null;
+    }
+
+    private function argumentName(SourceFile $source, Node $argument): ?string
+    {
+        foreach ($source->getChildren($argument) as $child) {
+            if ($child->kind === NodeKind::LocalIdentifier) {
+                return $source->getText($child);
+            }
+        }
+
+        return null;
+    }
+
+    private function closureArgument(SourceFile $source, ?Node $argument): ?Node
+    {
+        if ($argument === null) {
+            return null;
+        }
+
+        $expression = $this->valueExpression($source, $argument);
+        if ($expression === null) {
+            return null;
+        }
+
+        foreach ($source->getChildren($expression) as $child) {
+            if ($child->kind === NodeKind::Closure) {
+                foreach ($source->getChildren($child) as $part) {
+                    if ($part->kind === NodeKind::ClosureUseClause) {
+                        return null;
+                    }
+                }
+
+                return $child;
+            }
+        }
+
+        return null;
     }
 
     private function literalString(SourceFile $source, ?Node $argument): ?string
@@ -967,7 +1090,8 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
             return true;
         }
 
-        $text = trim($source->getText($argument));
+        $value = $this->valueExpression($source, $argument) ?? $argument;
+        $text = strtolower(trim($source->getText($value)));
 
         return $text !== 'false';
     }

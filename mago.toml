@@ -1,6 +1,6 @@
 # Configuration for this repository's fixture suite. Applications write their own.
 version = "1"
-php-version = "8.3"
+php-version = "8.5"
 
 [source]
 paths = ["tests/fixtures"]

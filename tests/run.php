@@ -159,6 +159,12 @@ $expected[false]['tests/fixtures/DataProviderDepends.php'] = [
 $expected[true]['tests/fixtures/DataProviderDepends.php'] = [
     'alfredbez/phpunit/phpunit-data-provider' => 0,
 ];
+$expected[false]['tests/fixtures/DataProviderDependsNamed.php'] = [
+    'alfredbez/phpunit/phpunit-data-provider' => 1,
+];
+$expected[true]['tests/fixtures/DataProviderDependsNamed.php'] = [
+    'alfredbez/phpunit/phpunit-data-provider' => 0,
+];
 $expected[false]['tests/fixtures/DataProviderTypes.php'] = [
     'alfredbez/phpunit/phpunit-data-provider' => 6,
 ];
@@ -361,6 +367,15 @@ foreach ([
     'longRows() row #0 provides 4 arguments for testTooLong()' => 1,
 ] as $needle => $count) {
     $failures += assertMessageCount('with extension', $with, $dataProviderDependsFile, $dataProvider, $needle, $count);
+}
+$dataProviderDependsNamedFile = 'tests/fixtures/DataProviderDependsNamed.php';
+foreach ([
+    'for testNamed()' => 0,
+    'for testUnknown()' => 0,
+    'for testReordered()' => 0,
+    'does not provide $missing for testWithoutDependency()' => 1,
+] as $needle => $count) {
+    $failures += assertMessageCount('with extension', $with, $dataProviderDependsNamedFile, $dataProvider, $needle, $count);
 }
 $dataProviderTypesFile = 'tests/fixtures/DataProviderTypes.php';
 foreach ([

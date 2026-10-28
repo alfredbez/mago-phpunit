@@ -371,6 +371,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
      *     positional: list<array{name: string, type: ?Type}>,
      *     named: array<string, ?Type>,
      *     variadicParameter: ?array{name: string, type: ?Type},
+     *     dependencies: int,
      * } $schema
      */
     private function checkProvider(
@@ -509,6 +510,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
      *     positional: list<array{name: string, type: ?Type}>,
      *     named: array<string, ?Type>,
      *     variadicParameter: ?array{name: string, type: ?Type},
+     *     dependencies: int,
      * } $schema
      */
     private function checkRow(
@@ -523,6 +525,10 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
     ): void {
         $named = $this->namedArguments($type);
         if ($named !== null) {
+            if ($schema['dependencies'] > 0) {
+                return;
+            }
+
             $names = array_keys($named);
             $missing = [];
             foreach ($schema['requiredNames'] as $name) {
@@ -665,6 +671,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
 
     /**
      * @return array{
+     *     dependencies: int,
      *     required: int,
      *     accepted: int,
      *     variadic: bool,
@@ -706,6 +713,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
 
         return [
             'required' => max(0, $required - $dependencies),
+            'dependencies' => $dependencies,
             'accepted' => $accepted,
             'variadic' => $variadic,
             'names' => $names,

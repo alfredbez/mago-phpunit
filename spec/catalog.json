@@ -161,6 +161,19 @@
       "status": "partial"
     },
     {
+      "id": "PHPUNIT-D004",
+      "title": "Named provider arguments with same-class dependencies",
+      "sources": ["phpunit-dependencies", "phpunit-providers"],
+      "fixture": "<?php use PHPUnit\\Framework\\Attributes\\DataProvider; use PHPUnit\\Framework\\Attributes\\Depends; use PHPUnit\\Framework\\TestCase; final class NamedTest extends TestCase { public function testSource(): string { return 'dependency'; } public static function rows(): array { return [['row' => 'value']]; } #[DataProvider('rows')] #[Depends('testSource')] public function testNamed(string $row, string $dependency): void { self::assertSame(['value', 'dependency'], [$row, $dependency]); } }",
+      "semantics": "The named provider row and dependency execute successfully on PHPUnit 10.5.66; PHPUnit 11.5.57, 12.5.42 and 13.4.5 fail on positional arguments after named arguments. This evidence is for the concrete runtime fixture, not all row shapes.",
+      "analyzer_expectation": "Conservatively omit named-row provider diagnostics when same-class Depends is present until the PHPUnit major and its invocation semantics can be reliably determined. Keep ordinary named-row and positional dependency diagnostics.",
+      "negative_control": "The same named row without Depends still reports a missing required parameter; positional rows with Depends retain their type and arity checks. With extensions disabled provider diagnostics disappear.",
+      "priority": "P0",
+      "versions": "Runtime evidence on PHP 8.4.27 in cycle 002; the analyzer deliberately does not claim version-specific diagnostics.",
+      "coverage": ["tests/fixtures/DataProviderDependsNamed.php", "tests/run.php", "tests/runtime-negative/ProviderDependsNamedTest.php"],
+      "status": "partial"
+    },
+    {
       "id": "PHPUNIT-L001",
       "title": "TestCase setup initializes test properties",
       "sources": ["psalm-testcase", "phpunit-providers"],

@@ -45,6 +45,12 @@ $expected = [
             'nullable-return-statement' => 1,
             'invalid-return-statement' => 1,
         ],
+        'tests/fixtures/HasKeyFunction.php' => [
+            'possibly-undefined-string-array-index' => 4,
+            'nullable-return-statement' => 1,
+            'invalid-return-statement' => 1,
+            'named-argument-not-allowed' => 2,
+        ],
         'tests/fixtures/SetUpPositive.php' => [
             'uninitialized-property' => 0,
         ],
@@ -73,6 +79,13 @@ $expected = [
             'possibly-null-operand' => 2,
             'nullable-return-statement' => 1,
             'invalid-return-statement' => 1,
+        ],
+        'tests/fixtures/HasKeyFunction.php' => [
+            'possibly-undefined-string-array-index' => 7,
+            'possibly-undefined-int-array-index' => 1,
+            'nullable-return-statement' => 1,
+            'invalid-return-statement' => 1,
+            'named-argument-not-allowed' => 2,
         ],
         'tests/fixtures/SetUpPositive.php' => [
             'uninitialized-property' => 1,

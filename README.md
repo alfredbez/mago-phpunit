@@ -4,9 +4,9 @@ PHPUnit support for [Mago](https://github.com/carthage-software/mago). This pack
 
 ## Features
 
-The extension registers four hooks under the `alfredbez/phpunit` plugin:
+The extension registers five hooks under the `alfredbez/phpunit` plugin:
 
-- `assertArrayHasKey()` narrows the array argument when the key is a literal string or integer. Calls may go through `$this`, `self::`, `static::`, or `PHPUnit\Framework\Assert::`. A non-literal key is not narrowed, and other keys stay uncertain.
+- `assertArrayHasKey()` narrows the array argument when the key is a literal string or integer. Calls may go through `$this`, `self::`, `static::`, `PHPUnit\Framework\Assert::`, or the function `PHPUnit\Framework\assertArrayHasKey()`. A non-literal key is not narrowed, other keys stay uncertain, and nullable values remain nullable. Named-argument warnings from PHPUnit's compatibility annotations are preserved.
 - `assertContainsOnlyInstancesOf(Foo::class, $items)` narrows `$items` to `iterable<mixed, Foo>` when the first argument is a literal class string and the installed `Assert::assertContainsOnlyInstancesOf()` carries no assertion of its own for `$haystack`. PHPUnit 11.5 and later already declare `@phpstan-assert` on that method, so this hook activates only on PHPUnit 10.5. A non-literal class name is left unchanged.
 - `setUp()` counts as a class initializer on subclasses of `PHPUnit\Framework\TestCase` when Mago checks property initialization. That includes `setUp()` inherited from a parent test class and helper methods called from `setUp()`. A property that `setUp()` never assigns is still reported, and `setUp()` on a class that does not extend `TestCase` is left alone.
 - Data providers on `TestCase` subclasses are checked and reported at error level as `alfredbez/phpunit/phpunit-data-provider`:

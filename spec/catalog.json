@@ -1,0 +1,154 @@
+{
+  "schema_version": 1,
+  "sources": {
+    "phpstan-assert-functions": {
+      "url": "https://github.com/phpstan/phpstan-phpunit/blob/8dbdc3a3e2d7c5dfea655d20ecca5bc9b1b1e441/tests/Type/PHPUnit/data/assert-function.php",
+      "kind": "analyzer-test",
+      "scope": "arrayHasNumericKey, arrayHasStringKey, arrayHasExprKey; not the extension implementation"
+    },
+    "psalm-testcase": {
+      "url": "https://github.com/psalm/psalm-plugin-phpunit/blob/01a0871ba04710331779a3a80c3caabc5427339c/tests/acceptance/TestCase.feature",
+      "kind": "analyzer-test",
+      "scope": "setUp, Before, provider row shape, required/default/variadic arguments; legacy examples are not modern PHPUnit contracts"
+    },
+    "phpunit-array-key": {
+      "url": "https://github.com/sebastianbergmann/phpunit/blob/fef037fe50d20ce826cdbd741b7a2afcdec5f45b/tests/unit/Framework/Assert/assertArrayHasKeyTest.php",
+      "kind": "runtime-test",
+      "scope": "PHPUnit 12.5.0; string/integer keys, ArrayAccess, success and failure datasets"
+    },
+    "phpunit-assertions": {
+      "url": "https://docs.phpunit.de/en/12.5/assertions.html",
+      "kind": "documentation",
+      "scope": "assertArrayHasKey, assertArrayNotHasKey, assertSame, assertEquals; versioned but mutable documentation"
+    },
+    "phpunit-providers": {
+      "url": "https://docs.phpunit.de/en/12.5/writing-tests-for-phpunit.html#data-providers",
+      "kind": "documentation",
+      "scope": "public static iterable-of-arrays; provider execution before setup; versioned but mutable documentation"
+    },
+    "mago-2383": {
+      "url": "https://github.com/carthage-software/mago/issues/2383",
+      "kind": "issue",
+      "scope": "historical native Mago gap, not evidence of a gap in this extension"
+    }
+  },
+  "cases": [
+    {
+      "id": "PHPUNIT-A001",
+      "title": "Literal method assertion establishes key presence",
+      "sources": ["phpunit-array-key", "phpunit-assertions", "mago-2383"],
+      "fixture": "<?php use PHPUnit\\Framework\\Assert; /** @param array{k?: string} $a */ function check(array $a): string { Assert::assertArrayHasKey('k', $a); return $a['k']; }",
+      "semantics": "On normal return the literal key exists. Other optional keys remain optional.",
+      "analyzer_expectation": "No undefined-key diagnostic on the asserted offset. Preserve diagnostics on an unrelated offset.",
+      "negative_control": "Assert 'k', then read optional 'other'; also remove the assertion.",
+      "priority": "P0",
+      "versions": "Mago 1.58.2 conformance verified across PHPUnit 10.5.66, 11.5.57, 12.5.42 and 13.4.5. Exact PHP combinations are recorded in cycles/001-A003.md.",
+      "coverage": ["tests/fixtures/HasKeyPositive.php", "tests/fixtures/HasKeyCounter.php"],
+      "status": "covered"
+    },
+    {
+      "id": "PHPUNIT-A002",
+      "title": "Key presence does not imply a non-null value",
+      "sources": ["phpunit-assertions", "phpunit-array-key"],
+      "fixture": "<?php use PHPUnit\\Framework\\Assert; $a = ['k' => null]; Assert::assertArrayHasKey('k', $a); Assert::assertNull($a['k']);",
+      "semantics": "A null-valued array entry is present. HasKey must not become HasNonnullEntryForKey.",
+      "analyzer_expectation": "After the assertion, returning the nullable entry from a string-returning function remains invalid.",
+      "negative_control": "assertArrayNotHasKey('k', ['k' => null]) must fail. A nullable-return diagnostic must survive narrowing.",
+      "priority": "P0",
+      "versions": "Function conformance and runtime checked across the cycle 001 matrix. Non-null mutation killed. A separate nullable method-call fixture remains untested.",
+      "coverage": ["tests/fixtures/HasKeyFunction.php", "tests/runtime/RuntimeContractTest.php", "tests/mutate-a003.php"],
+      "status": "partial"
+    },
+    {
+      "id": "PHPUNIT-A003",
+      "title": "Namespaced assertion function establishes key presence",
+      "sources": ["phpstan-assert-functions", "phpunit-assertions"],
+      "fixture": "<?php use function PHPUnit\\Framework\\assertArrayHasKey; /** @param array{k?: string|null} $a */ function check(array $a): string|null { assertArrayHasKey('k', $a); return $a['k']; }",
+      "semantics": "The public namespaced assertion function has the same key-existence postcondition as the method.",
+      "analyzer_expectation": "Narrow the asserted key on normal return. PHPStan's hasOffset spelling is analyzer-specific and is not required.",
+      "negative_control": "Unasserted, other-key, variable-key and unrelated-function reads retain four offset warnings. Nullable returns retain both errors. Disabling extensions restores seven string-offset and one integer-offset warnings. Reordered named arguments retain two native no-named-arguments diagnostics.",
+      "priority": "P0",
+      "versions": "Red before fix on PHPUnit 12.5.40 / Mago 1.58.2; green across cycle 001's seven PHP/PHPUnit combinations. PHPStan fixture is pinned; PHPStan itself was not executed. Named argument names are not a PHPUnit compatibility guarantee.",
+      "coverage": ["tests/fixtures/HasKeyFunction.php", "tests/run.php", "tests/runtime/RuntimeContractTest.php", "tests/mutate-a003.php"],
+      "status": "covered"
+    },
+    {
+      "id": "PHPUNIT-A004",
+      "title": "Canonical numeric string keys alias integer keys",
+      "sources": ["phpunit-array-key", "phpunit-assertions"],
+      "fixture": "<?php use PHPUnit\\Framework\\Assert; Assert::assertArrayHasKey('7', [7 => 'value']); Assert::assertArrayHasKey(7, ['7' => 'value']);",
+      "semantics": "PHP array key conversion makes '7' and 7 equivalent. '07' remains a distinct string key.",
+      "analyzer_expectation": "Preserve PHP key normalization, without treating every numeric-looking string as an integer.",
+      "negative_control": "assertArrayHasKey('07', [7 => 'value']) must fail.",
+      "priority": "P1",
+      "versions": "Runtime checked on 11.5.0 and 12.5.0; no claim about all PHP numeric string edge cases.",
+      "coverage": [],
+      "status": "runtime-verified"
+    },
+    {
+      "id": "PHPUNIT-A005",
+      "title": "ArrayAccess remains an object",
+      "sources": ["phpunit-array-key", "phpstan-assert-functions"],
+      "fixture": "<?php use PHPUnit\\Framework\\Assert; $a = new ArrayObject(['k' => 'v']); Assert::assertArrayHasKey('k', $a); Assert::assertInstanceOf(ArrayObject::class, $a);",
+      "semantics": "ArrayAccess is accepted, but the assertion must not turn the object into an array. User-defined offsetExists need not prove offsetGet is non-null.",
+      "analyzer_expectation": "Keep object identity and do not infer an array shape on ArrayAccess.",
+      "negative_control": "A missing offset fails; retain methods of the ArrayAccess implementation after assertion.",
+      "priority": "P1",
+      "versions": "ArrayObject runtime checked on 11.5.0 and 12.5.0. Arbitrary ArrayAccess side effects remain untested.",
+      "coverage": [],
+      "status": "runtime-verified"
+    },
+    {
+      "id": "PHPUNIT-A006",
+      "title": "Equality must not become identity narrowing",
+      "sources": ["phpunit-assertions"],
+      "fixture": "<?php use PHPUnit\\Framework\\Assert; Assert::assertEquals(7, '7'); Assert::assertSame(7, '7');",
+      "semantics": "The equality assertion passes; the identity assertion fails because the types differ.",
+      "analyzer_expectation": "Do not narrow an actual string to integer merely because assertEquals used an integer expected value.",
+      "negative_control": "The assertSame call must fail at runtime, while assertEquals passes.",
+      "priority": "P1",
+      "versions": "Runtime checked on 11.5.0 and 12.5.0. Native assertSame coverage exists but does not establish assertEquals conformance.",
+      "coverage": ["tests/fixtures/NativeAssertions.php"],
+      "status": "runtime-verified"
+    },
+    {
+      "id": "PHPUNIT-D001",
+      "title": "Providers yield arrays with required test arguments",
+      "sources": ["phpunit-providers", "psalm-testcase"],
+      "fixture": "<?php use PHPUnit\\Framework\\TestCase; use PHPUnit\\Framework\\Attributes\\DataProvider; final class RowsTest extends TestCase { public static function rows(): iterable { yield [7]; } #[DataProvider('rows')] public function testRow(int $n, string $suffix = '', int ...$rest): void { self::assertSame(7, $n); } }",
+      "semantics": "A provider returns iterable rows; each row is an array. Default and variadic parameters may be omitted, required parameters may not.",
+      "analyzer_expectation": "Report required-argument and concrete type mismatches. Psalm issue names and its handling of untyped providers are not PHPUnit requirements.",
+      "negative_control": "Remove the default from suffix, or yield scalar 7 instead of [7].",
+      "priority": "P0",
+      "versions": "Modern fixture uses public static and attributes. Psalm's non-static annotation examples must not be copied into PHPUnit 12+ fixtures.",
+      "coverage": ["tests/fixtures/DataProvider.php", "tests/fixtures/DataProviderTypes.php", "tests/fixtures/DataProviderYieldFrom.php"],
+      "status": "partial"
+    },
+    {
+      "id": "PHPUNIT-D002",
+      "title": "Providers execute before lifecycle initialization",
+      "sources": ["phpunit-providers"],
+      "fixture": "<?php use PHPUnit\\Framework\\TestCase; use PHPUnit\\Framework\\Attributes\\DataProvider; final class OrderTest extends TestCase { private static bool $ready = false; public static function setUpBeforeClass(): void { self::$ready = true; } public static function rows(): array { return [[self::$ready]]; } #[DataProvider('rows')] public function testOrder(bool $ready): void { self::assertFalse($ready); } }",
+      "semantics": "Providers run before setUpBeforeClass and before the first setUp. Initialization knowledge cannot flow backwards into providers.",
+      "analyzer_expectation": "Do not assume test lifecycle initialization in data provider bodies.",
+      "negative_control": "Change the expectation to assertTrue; the runtime test must fail.",
+      "priority": "P1",
+      "versions": "Documented for PHPUnit 12.5. Runtime and Mago checks pending.",
+      "coverage": [],
+      "status": "candidate"
+    },
+    {
+      "id": "PHPUNIT-L001",
+      "title": "TestCase setup initializes test properties",
+      "sources": ["psalm-testcase", "phpunit-providers"],
+      "fixture": "<?php use PHPUnit\\Framework\\TestCase; final class SetupTest extends TestCase { private string $value; protected function setUp(): void { $this->value = 'ready'; } public function testValue(): void { self::assertSame('ready', $this->value); } }",
+      "semantics": "TestCase setup runs before a test. An unrelated class's method called setUp has no PHPUnit lifecycle meaning.",
+      "analyzer_expectation": "Accept unconditional setup assignment, including inherited setup. Do not suppress missing initialization merely because setUp exists.",
+      "negative_control": "Remove the assignment, or remove TestCase inheritance.",
+      "priority": "P0",
+      "versions": "Existing suite green across cycle 001's seven combinations on Mago 1.58.2. Conditional assignments remain an explicitly documented Mago limitation.",
+      "coverage": ["tests/fixtures/SetUpPositive.php", "tests/fixtures/SetUpCounter.php", "tests/fixtures/SetUpInherited.php", "tests/fixtures/SetUpNotTestCase.php"],
+      "status": "covered"
+    }
+  ]
+}

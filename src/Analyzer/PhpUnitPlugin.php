@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace AlfredBez\MagoPhpunit\Analyzer;
 
 use AlfredBez\MagoPhpunit\Analyzer\Providers\AssertArrayHasKeyAssertion;
+use AlfredBez\MagoPhpunit\Analyzer\Providers\AssertArrayHasKeyFunctionAssertion;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\ContainsOnlyInstancesAssertion;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\DataProviderArguments;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\SetUpInitializer;
@@ -27,6 +28,7 @@ final class PhpUnitPlugin implements Plugin
     public function register(PluginRegistry $registry): void
     {
         $registry->registerMethodAssertionProvider(new AssertArrayHasKeyAssertion());
+        $registry->registerFunctionAssertionProvider(new AssertArrayHasKeyFunctionAssertion());
         $registry->registerMethodAssertionProvider(new ContainsOnlyInstancesAssertion());
         $registry->registerClassInitializerProvider(new SetUpInitializer());
         $registry->registerClassLikeAnalysisHook(new DataProviderArguments());

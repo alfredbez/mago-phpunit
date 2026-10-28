@@ -84,7 +84,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
             }
 
             $testLabel = $this->methodLabel($source, $node);
-            $schema = $this->parameterSchema($test);
+            $schema = $this->parameterSchema($test, $this->dependencyCount($source, $node));
             foreach ($this->providerReferences($context, $source, $node, $className) as $provider) {
                 $providerNode = $provider['node'] ?? $this->locateMethod($context, $methods, $provider['class'], $provider['method']);
                 if ($providerNode === null) {
@@ -103,6 +103,26 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
                 );
             }
         }
+    }
+
+    private function dependencyCount(SourceFile $source, Node $method): int
+    {
+        $count = 0;
+        foreach ($source->getChildren($method) as $list) {
+            if ($list->kind !== NodeKind::AttributeList) {
+                continue;
+            }
+            foreach ($source->getChildren($list) as $attribute) {
+                if ($attribute->kind !== NodeKind::Attribute) {
+                    continue;
+                }
+                $name = strtolower($this->attributeName($source, $attribute) ?? '');
+                if ($name === 'phpunit\\framework\\attributes\\depends') {
+                    $count++;
+                }
+            }
+        }
+        return $count;
     }
 
     private function testCaseName(NodeAnalysisContext $context): ?string
@@ -655,7 +675,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
      *     variadicParameter: ?array{name: string, type: ?Type},
      * }
      */
-    private function parameterSchema(FunctionLikeMetadata $method): array
+    private function parameterSchema(FunctionLikeMetadata $method, int $dependencies): array
     {
         $required = 0;
         $accepted = 0;
@@ -685,7 +705,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
         }
 
         return [
-            'required' => $required,
+            'required' => max(0, $required - $dependencies),
             'accepted' => $accepted,
             'variadic' => $variadic,
             'names' => $names,

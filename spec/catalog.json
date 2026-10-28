@@ -26,6 +26,16 @@
       "kind": "documentation",
       "scope": "public static iterable-of-arrays; provider execution before setup; versioned but mutable documentation"
     },
+    "psalm-113": {
+      "url": "https://github.com/psalm/psalm-plugin-phpunit/issues/113",
+      "kind": "issue",
+      "scope": "Motivation to investigate provider argument validation; not proof of PHPUnit behavior"
+    },
+    "phpunit-dependencies": {
+      "url": "https://docs.phpunit.de/en/12.5/writing-tests-for-phpunit.html#dependencies-and-data-providers",
+      "kind": "documentation",
+      "scope": "Provider and dependency argument order"
+    },
     "mago-2383": {
       "url": "https://github.com/carthage-software/mago/issues/2383",
       "kind": "issue",
@@ -136,6 +146,19 @@
       "versions": "Documented for PHPUnit 12.5. Runtime and Mago checks pending.",
       "coverage": [],
       "status": "candidate"
+    },
+    {
+      "id": "PHPUNIT-D003",
+      "title": "Provider arguments precede dependency results",
+      "sources": ["phpunit-dependencies", "psalm-113"],
+      "fixture": "<?php use PHPUnit\\Framework\\Attributes\\DataProvider; use PHPUnit\\Framework\\Attributes\\Depends; use PHPUnit\\Framework\\TestCase; final class OrderTest extends TestCase { public function testSource(): string { return 'dependency'; } public static function rows(): array { return [['row', 42]]; } #[DataProvider('rows')] #[Depends('testSource')] public function testOrder(string $row, int $n, string $dependency): void { self::assertSame(['row', 42, 'dependency'], [$row, $n, $dependency]); } }",
+      "semantics": "Positional provider arguments precede the results of same-class dependencies, which follow their attribute order. PHP accepts additional arguments beyond a user-defined method's declared parameters.",
+      "analyzer_expectation": "Do not report missing provider arguments when same-class dependency results supply them. Continue checking positional provider argument types and missing arguments that dependencies cannot supply.",
+      "negative_control": "Too few provider arguments after accounting for dependencies and an incompatible provider argument still produce diagnostics. Disable the extension and the provider diagnostics disappear.",
+      "priority": "P0",
+      "versions": "Positional rows and modern Depends attributes; runtime and Mago checks scoped to versions recorded in cycle 002. Named rows, other dependency attributes and annotations remain analyzer gaps.",
+      "coverage": ["tests/fixtures/DataProviderDepends.php", "tests/runtime/ProviderDependsTest.php", "tests/runtime-negative/ProviderDependsNamedTest.php", "tests/run.php"],
+      "status": "partial"
     },
     {
       "id": "PHPUNIT-L001",

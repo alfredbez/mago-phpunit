@@ -54,7 +54,8 @@ new version boundaries to the public specification.
 7. Run the full existing suite, update the catalogue, then preserve the cycle
    as one local atomic change.
 
-The first completed cycle is [PHPUNIT-A003](cycles/001-A003.md). PHPUNIT-A001
+The completed cycles are [PHPUNIT-A003](cycles/001-A003.md) and
+[PHPUNIT-D003](cycles/002-D003.md). PHPUNIT-A001
 was already implemented in the existing extension, so the earlier Mago 1.56.1
 native-only reproduction is not used to claim an extension defect.
 

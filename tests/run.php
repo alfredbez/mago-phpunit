@@ -153,6 +153,12 @@ $expected[false]['tests/fixtures/DataProvider.php'] = $dataProviderIssues;
 $expected[true]['tests/fixtures/DataProvider.php'] = $phpunitMajor < 12
     ? ['too-many-arguments' => 1]
     : ['alfredbez/phpunit/phpunit-data-provider' => 0];
+$expected[false]['tests/fixtures/DataProviderDepends.php'] = [
+    'alfredbez/phpunit/phpunit-data-provider' => 3,
+];
+$expected[true]['tests/fixtures/DataProviderDepends.php'] = [
+    'alfredbez/phpunit/phpunit-data-provider' => 0,
+];
 $expected[false]['tests/fixtures/DataProviderTypes.php'] = [
     'alfredbez/phpunit/phpunit-data-provider' => 6,
 ];
@@ -346,6 +352,15 @@ foreach ([
     'conditionalRows()' => 1,
 ] as $needle => $count) {
     $failures += assertMessageCount('with extension', $with, $dataProviderFile, $dataProvider, $needle, $count);
+}
+$dataProviderDependsFile = 'tests/fixtures/DataProviderDepends.php';
+foreach ([
+    'for testValid()' => 0,
+    'shortRows() row #0 provides 1 argument for testTooShort()' => 1,
+    'wrongTypeRows() row #0 provides int for $row of testWrongType(), which expects string.' => 1,
+    'longRows() row #0 provides 4 arguments for testTooLong()' => 1,
+] as $needle => $count) {
+    $failures += assertMessageCount('with extension', $with, $dataProviderDependsFile, $dataProvider, $needle, $count);
 }
 $dataProviderTypesFile = 'tests/fixtures/DataProviderTypes.php';
 foreach ([

@@ -15,12 +15,12 @@ The extension registers five hooks under the `alfredbez/phpunit` plugin:
   - Provider bodies may return an array literal, return a local variable assigned a literal array once, `yield` rows, or `yield from` a literal array. Method providers are resolved on the test class, a parent test class in the same file, or an external class in the same file. Repeatable provider attributes and mixing `#[DataProvider]` with `#[DataProviderClosure]` on the same test method work.
   - `#[DataProviderClosure]`, introduced in PHPUnit 13.1.0 in PHPUnit `#6526`, is checked only when `PHPUnit\Framework\Attributes\DataProviderClosure` exists in the analyzed codebase. The hook checks static closures without `use` whose body is a literal `return`, `yield`, or `yield from` of a literal array. Non-literal bodies and closures with `use` stay silent.
 
-`assertInstanceOf()`, `assertNull()`, and `assertSame()` are narrowed natively by Mago without an extension. PHPUnit 10.5 annotates them with `@psalm-assert`, and PHPUnit 11.5 and later annotate them with `@phpstan-assert`.
+`assertInstanceOf()`, `assertNull()`, `assertSame()`, `createMock()`, and `createStub()` are narrowed natively by Mago without an extension. PHPUnit 10.5 annotates the assertions with `@psalm-assert`, and PHPUnit 11.5 and later annotate them with `@phpstan-assert`.
 
 ## Supported versions
 
 - PHP `~8.1.0 || ~8.2.0 || ~8.3.0 || ~8.4.0 || ~8.5.0 || ~8.6.0`, as declared in `composer.json`.
-- Mago `carthage-software/mago` `~1.58.2`.
+- Mago `carthage-software/mago` `~1.60.2`.
 - PHPUnit `^10.5 || ^11.5 || ^12.0 || ^13.0`. This package does not require `phpunit/phpunit` at runtime so your application keeps its own PHPUnit constraint. CI runs the test suite against PHPUnit `^10.5`, `^11.5`, and `^12.0` on PHP 8.3, and against `^13.0` on PHP 8.4.
 - `#[DataProviderClosure]` requires PHPUnit 13.1.0 or later, PHP 8.5 at runtime for closures in constant expressions, and `php-version = "8.5"` in `mago.toml`.
 

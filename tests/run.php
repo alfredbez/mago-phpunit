@@ -141,6 +141,13 @@ $nativeAssertions = [
 ];
 $expected[false]['tests/fixtures/NativeAssertions.php'] = $nativeAssertions;
 $expected[true]['tests/fixtures/NativeAssertions.php'] = $nativeAssertions;
+// Mago 1.60.2 narrows createMock() and createStub() natively via PHPUnit's template annotations.
+$nativeMocks = [
+    'invalid-argument' => 1,
+    'non-existent-method' => 2,
+];
+$expected[false]['tests/fixtures/NativeMocks.php'] = $nativeMocks;
+$expected[true]['tests/fixtures/NativeMocks.php'] = $nativeMocks;
 // PHPUnit 12 removed doc-comment metadata, so the @dataProvider fixture is only checked before 12.
 $annotationsSupported = $phpunitMajor < 12;
 $dataProviderIssues = ['alfredbez/phpunit/phpunit-data-provider' => $annotationsSupported ? 14 : 13];
@@ -329,6 +336,30 @@ foreach ([false => $with, true => $without] as $disabled => $issues) {
         'tests/fixtures/NativeAssertions.php',
         'invalid-return-statement',
         'testSameOtherVariable',
+        1,
+    );
+    $failures += assertMessageCount(
+        $label,
+        $issues,
+        'tests/fixtures/NativeMocks.php',
+        'non-existent-method',
+        'missingMethod',
+        1,
+    );
+    $failures += assertMessageCount(
+        $label,
+        $issues,
+        'tests/fixtures/NativeMocks.php',
+        'non-existent-method',
+        'expects',
+        1,
+    );
+    $failures += assertMessageCount(
+        $label,
+        $issues,
+        'tests/fixtures/NativeMocks.php',
+        'invalid-argument',
+        'PHPUnit\\Framework\\MockObject\\MockObject&AlfredBez\\MagoPhpunit\\Fixtures\\MockedDependency',
         1,
     );
 }

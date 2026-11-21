@@ -5,16 +5,25 @@ declare(strict_types=1);
 namespace AlfredBez\MagoPhpunit\Analyzer\Providers;
 
 use AlfredBez\MagoPhpunit\Analyzer\PhpUnitVersion;
+use JsonException;
+use Mago\Sdk\Analyzer\AfterAnalysisContext;
+use Mago\Sdk\Analyzer\AfterAnalysisHook;
 use Mago\Sdk\Analyzer\ClassLikeAnalysisHook;
 use Mago\Sdk\Analyzer\ClassLikeTarget;
+use Mago\Sdk\Analyzer\FileAnalysis;
 use Mago\Sdk\Analyzer\FileAnalysisRequirement;
-use Mago\Sdk\Analyzer\Metadata\FunctionLikeMetadata;
+use Mago\Sdk\Analyzer\LifecycleContext;
+use Mago\Sdk\Analyzer\Metadata\AttributeMetadata;
 use Mago\Sdk\Analyzer\Metadata\MetadataFlags;
+use Mago\Sdk\Analyzer\Metadata\MethodFields;
 use Mago\Sdk\Analyzer\Metadata\ParameterMetadata;
 use Mago\Sdk\Analyzer\NodeAnalysisContext;
 use Mago\Sdk\Analyzer\Type;
+use Mago\Sdk\Analyzer\Type\ArrayItem;
+use Mago\Sdk\Analyzer\Type\ArrayKey;
 use Mago\Sdk\Analyzer\Type\ArrayKeyKind;
 use Mago\Sdk\Analyzer\Type\KeyedArrayType;
+use Mago\Sdk\Analyzer\Type\ListElement;
 use Mago\Sdk\Analyzer\Type\ListType;
 use Mago\Sdk\Analyzer\Type\MixedType;
 use Mago\Sdk\Analyzer\Type\SimpleAtomicType;
@@ -30,12 +39,12 @@ use Mago\Sdk\Syntax\TriviaKind;
 use WeakMap;
 
 /**
- * Reports data-provider rows whose arity or argument types cannot match the test method.
+ * Reports data-provider, TestWith, and TestWithJson rows whose arity or argument types cannot match the test method.
  *
  * Method metadata only keeps the declared return type (`array`, `iterable`), so
  * row shapes are read from the inferred type of each literal return or yield.
  */
-final class DataProviderArguments implements ClassLikeAnalysisHook
+final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysisHook
 {
     private const DATA_PROVIDER = 'phpunit\\framework\\attributes\\dataprovider';
 
@@ -43,14 +52,32 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
 
     private const DATA_PROVIDER_EXTERNAL = 'phpunit\\framework\\attributes\\dataproviderexternal';
 
+    private const TEST_WITH = 'phpunit\\framework\\attributes\\testwith';
+
+    private const TEST_WITH_JSON = 'phpunit\\framework\\attributes\\testwithjson';
+
     private const TEST_CASE = 'phpunit\\framework\\testcase';
+
+    /** Method dependencies that pass return values into TestCase::$dependencyInput. Class dependencies do not. */
+    private const METHOD_DEPENDENCY_ATTRIBUTES = [
+        'phpunit\\framework\\attributes\\depends' => true,
+        'phpunit\\framework\\attributes\\dependsexternal' => true,
+        'phpunit\\framework\\attributes\\dependsusingdeepclone' => true,
+        'phpunit\\framework\\attributes\\dependsusingshallowclone' => true,
+        'phpunit\\framework\\attributes\\dependsexternalusingdeepclone' => true,
+        'phpunit\\framework\\attributes\\dependsexternalusingshallowclone' => true,
+    ];
 
     /** @var WeakMap<SourceFile, array<string, array<string, Node>>> */
     private WeakMap $methodsByFile;
 
+    /** @var WeakMap<SourceFile, array<int, list<array{type: Type, span: Span, label: string}>>> */
+    private WeakMap $providerRowsByFile;
+
     public function __construct()
     {
         $this->methodsByFile = new WeakMap();
+        $this->providerRowsByFile = new WeakMap();
     }
 
     public function getTargets(): array
@@ -84,15 +111,25 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
         }
 
         foreach ($declared->methods as $methodName) {
-            $test = $context->codebase->getMethod($className, $methodName);
             $node = $methods[strtolower($className)][strtolower($methodName)] ?? null;
-            if ($test === null || $node === null) {
+            if ($node === null) {
+                continue;
+            }
+
+            $providers = $this->providerReferences($context, $source, $node, $className);
+            $hasTestWith = $this->hasTestWithAttribute($source, $node);
+            if ($providers === [] && !$hasTestWith) {
+                continue;
+            }
+
+            $test = $context->codebase->getMethod($className, $methodName);
+            if ($test === null) {
                 continue;
             }
 
             $testLabel = $this->methodLabel($source, $node);
-            $schema = $this->parameterSchema($test, $this->dependencyCount($source, $node));
-            foreach ($this->providerReferences($context, $source, $node, $className) as $provider) {
+            $schema = $this->parameterSchema($test->parameters, $this->dependencyCount($source, $node));
+            foreach ($providers as $provider) {
                 $providerNode = $provider['node'] ?? $this->locateMethod($context, $methods, $provider['class'], $provider['method']);
                 if ($providerNode === null) {
                     continue;
@@ -101,12 +138,85 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
                 $providerLabel = $provider['node'] !== null ? 'closure' : $this->methodLabel($source, $providerNode);
                 $this->checkProvider(
                     $context,
+                    $context->analysis,
                     $source,
                     $providerNode,
                     $testLabel,
-                    $providerLabel,
+                    'Data provider ' . $providerLabel . '()',
                     $schema,
                     $provider['validateCount'],
+                );
+            }
+
+            if ($hasTestWith) {
+                $this->checkTestWithAttributes($context, $context->analysis->file, $test->attributes, $testLabel, $schema);
+            }
+        }
+    }
+
+    public function afterAnalysis(AfterAnalysisContext $context): void
+    {
+        $methods = $context->codebase->findMethods(
+            descendantsOf: 'PHPUnit\\Framework\\TestCase',
+            withAnyAttribute: ['PHPUnit\\Framework\\Attributes\\DataProviderExternal'],
+            fields: MethodFields::NAMES | MethodFields::LOCATIONS | MethodFields::PARAMETERS | MethodFields::ATTRIBUTES,
+            declaredOnly: true,
+        );
+
+        foreach ($methods as $testMethod) {
+            if ($testMethod->location === null || $testMethod->parameters === null || $testMethod->attributes === null) {
+                continue;
+            }
+
+            $testFile = $testMethod->location->file;
+            $testLabel = $testMethod->originalName ?? $testMethod->method->member;
+            $schema = $this->parameterSchema(
+                $testMethod->parameters,
+                $this->dependencyCountFromAttributes($testMethod->attributes),
+            );
+
+            foreach ($testMethod->attributes as $attribute) {
+                if (strtolower($attribute->name) !== self::DATA_PROVIDER_EXTERNAL) {
+                    continue;
+                }
+
+                $classArg = $attribute->getArgument(0, 'className');
+                $methodArg = $attribute->getArgument(1, 'methodName');
+                $providerClass = $classArg?->valueType?->getLiteralClassString() ?? $classArg?->valueType?->getLiteralString();
+                $providerMethod = $methodArg?->valueType?->getLiteralString();
+                if ($providerClass === null || $providerClass === '' || $providerMethod === null || $providerMethod === '') {
+                    continue;
+                }
+
+                $declaring = $context->codebase->getDeclaringMethod($providerClass, $providerMethod);
+                if ($declaring === null || $declaring->location->file === $testFile) {
+                    continue;
+                }
+
+                $providerAnalysis = $context->analysis->getFile($declaring->location->file);
+                if ($providerAnalysis === null) {
+                    continue;
+                }
+
+                $providerSource = $providerAnalysis->getSourceFile();
+                $providerMethods = $this->methodsInFile($providerSource);
+                $declaringClass = $declaring->identifier->class ?? $providerClass;
+                $providerNode = $this->locateMethod($context, $providerMethods, $declaringClass, $declaring->originalName);
+                if ($providerNode === null) {
+                    continue;
+                }
+
+                $validateCount = $attribute->getArgument(2, 'validateArgumentCount')?->valueType?->getLiteralBool() ?? true;
+                $providerLabel = $this->methodLabel($providerSource, $providerNode);
+                $this->checkProvider(
+                    $context,
+                    $providerAnalysis,
+                    $providerSource,
+                    $providerNode,
+                    $testLabel,
+                    'Data provider ' . $providerLabel . '()',
+                    $schema,
+                    $validateCount,
                 );
             }
         }
@@ -124,12 +234,45 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
                     continue;
                 }
                 $name = strtolower($this->attributeName($source, $attribute) ?? '');
-                if ($name === 'phpunit\\framework\\attributes\\depends') {
+                if (isset(self::METHOD_DEPENDENCY_ATTRIBUTES[$name])) {
                     $count++;
                 }
             }
         }
         return $count;
+    }
+
+    /** @param list<AttributeMetadata> $attributes */
+    private function dependencyCountFromAttributes(array $attributes): int
+    {
+        $count = 0;
+        foreach ($attributes as $attribute) {
+            if (isset(self::METHOD_DEPENDENCY_ATTRIBUTES[strtolower($attribute->name)])) {
+                $count++;
+            }
+        }
+
+        return $count;
+    }
+
+    private function hasTestWithAttribute(SourceFile $source, Node $method): bool
+    {
+        foreach ($source->getChildren($method) as $list) {
+            if ($list->kind !== NodeKind::AttributeList) {
+                continue;
+            }
+            foreach ($source->getChildren($list) as $attribute) {
+                if ($attribute->kind !== NodeKind::Attribute) {
+                    continue;
+                }
+                $name = strtolower($this->attributeName($source, $attribute) ?? '');
+                if ($name === self::TEST_WITH || $name === self::TEST_WITH_JSON) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private function testCaseName(NodeAnalysisContext $context): ?string
@@ -196,7 +339,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
     /**
      * @param array<string, array<string, Node>> $methods
      */
-    private function locateMethod(NodeAnalysisContext $context, array $methods, string $class, string $method): ?Node
+    private function locateMethod(LifecycleContext $context, array $methods, string $class, string $method): ?Node
     {
         $seen = [];
         $current = strtolower($class);
@@ -386,14 +529,31 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
      * } $schema
      */
     private function checkProvider(
-        NodeAnalysisContext $context,
+        LifecycleContext $context,
+        FileAnalysis $analysis,
         SourceFile $source,
         Node $provider,
         string $test,
-        string $providerName,
+        string $sourceLabel,
         array $schema,
         bool $validateCount,
     ): void {
+        foreach ($this->extractProviderRows($analysis, $source, $provider) as $row) {
+            $this->checkRow($context, $analysis->file, $row['type'], $row['span'], $row['label'], $test, $sourceLabel, $schema, $validateCount);
+        }
+    }
+
+    /**
+     * @return list<array{type: Type, span: Span, label: string}>
+     */
+    private function extractProviderRows(FileAnalysis $analysis, SourceFile $source, Node $provider): array
+    {
+        $cached = $this->providerRowsByFile[$source] ?? [];
+        if (isset($cached[$provider->id])) {
+            return $cached[$provider->id];
+        }
+
+        $rows = [];
         $yields = [];
         foreach ($source->getDescendants($provider, NodeKind::Yield) as $yield) {
             if ($this->isNestedCallable($source, $provider, $yield)) {
@@ -406,13 +566,13 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
             foreach ($yields as $index => $yield) {
                 $collection = $this->yieldFromArrayExpression($source, $yield);
                 if ($collection !== null) {
-                    $type = $context->analysis->getExpressionType($collection);
+                    $type = $analysis->getExpressionType($collection);
                     if ($type === null) {
                         continue;
                     }
 
                     foreach ($this->rowsFromCollection($source, $collection, $type) as $row) {
-                        $this->checkRow($context, $row['type'], $row['span'], $row['label'], $test, $providerName, $schema, $validateCount);
+                        $rows[] = $row;
                     }
 
                     continue;
@@ -423,15 +583,22 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
                     continue;
                 }
 
-                $type = $context->analysis->getExpressionType($expression);
+                $type = $analysis->getExpressionType($expression);
                 if ($type === null) {
                     continue;
                 }
 
-                $this->checkRow($context, $type, $expression->span, '#' . $index, $test, $providerName, $schema, $validateCount);
+                $rows[] = [
+                    'type' => $type,
+                    'span' => $expression->span,
+                    'label' => '#' . $index,
+                ];
             }
 
-            return;
+            $cached[$provider->id] = $rows;
+            $this->providerRowsByFile[$source] = $cached;
+
+            return $rows;
         }
 
         foreach ($source->getDescendants($provider, NodeKind::Return) as $return) {
@@ -444,15 +611,151 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
                 continue;
             }
 
-            $type = $context->analysis->getExpressionType($expression);
+            $type = $analysis->getExpressionType($expression);
             if ($type === null) {
                 continue;
             }
 
             foreach ($this->rowsFromCollection($source, $expression, $type) as $row) {
-                $this->checkRow($context, $row['type'], $row['span'], $row['label'], $test, $providerName, $schema, $validateCount);
+                $rows[] = $row;
             }
         }
+
+        $cached[$provider->id] = $rows;
+        $this->providerRowsByFile[$source] = $cached;
+
+        return $rows;
+    }
+
+    /**
+     * @param list<AttributeMetadata> $attributes
+     * @param array{
+     *     required: int,
+     *     accepted: int,
+     *     variadic: bool,
+     *     names: list<string>,
+     *     requiredNames: list<string>,
+     *     positional: list<array{name: string, type: ?Type}>,
+     *     named: array<string, ?Type>,
+     *     variadicParameter: ?array{name: string, type: ?Type},
+     *     dependencies: int,
+     * } $schema
+     */
+    private function checkTestWithAttributes(
+        LifecycleContext $context,
+        string $reportFile,
+        array $attributes,
+        string $test,
+        array $schema,
+    ): void {
+        $index = 0;
+        foreach ($attributes as $attribute) {
+            $normalized = strtolower($attribute->name);
+            if ($normalized !== self::TEST_WITH && $normalized !== self::TEST_WITH_JSON) {
+                continue;
+            }
+
+            $nameArg = $attribute->getArgument(1, 'name');
+            $datasetName = $nameArg?->valueType?->getLiteralString();
+            $label = $datasetName !== null && $datasetName !== '' ? '"' . $datasetName . '"' : '#' . $index;
+            $index++;
+
+            if ($normalized === self::TEST_WITH) {
+                $dataArg = $attribute->getArgument(0, 'data');
+                $type = $dataArg?->valueType;
+                if ($type === null) {
+                    continue;
+                }
+
+                $span = $dataArg->valueLocation?->span ?? $attribute->location->span;
+                $this->checkRow($context, $reportFile, $type, $span, $label, $test, 'Attribute #[TestWith]', $schema, true);
+                continue;
+            }
+
+            $jsonArg = $attribute->getArgument(0, 'json');
+            $json = $jsonArg?->valueType?->getLiteralString();
+            if ($json === null) {
+                continue;
+            }
+
+            $span = $jsonArg->valueLocation?->span ?? $attribute->location->span;
+            try {
+                $decoded = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+            } catch (JsonException) {
+                $this->report($context, $reportFile, $span, sprintf(
+                    'Attribute #[TestWithJson] row %s for %s() contains invalid JSON.',
+                    $label,
+                    $test,
+                ));
+                continue;
+            }
+
+            if (!is_array($decoded)) {
+                $this->report($context, $reportFile, $span, sprintf(
+                    'Attribute #[TestWithJson] row %s provides %s for %s(), which expects an argument list.',
+                    $label,
+                    get_debug_type($decoded),
+                    $test,
+                ));
+                continue;
+            }
+
+            $this->checkRow(
+                $context,
+                $reportFile,
+                self::jsonValueToType($decoded),
+                $span,
+                $label,
+                $test,
+                'Attribute #[TestWithJson]',
+                $schema,
+                true,
+            );
+        }
+    }
+
+    private static function jsonValueToType(mixed $value): Type
+    {
+        if (is_int($value)) {
+            return Type::literalInt($value);
+        }
+        if (is_float($value)) {
+            return Type::float();
+        }
+        if (is_string($value)) {
+            return Type::literalString($value);
+        }
+        if (is_bool($value)) {
+            return $value ? Type::true() : Type::false();
+        }
+        if ($value === null) {
+            return Type::null();
+        }
+        if (!is_array($value)) {
+            return Type::mixed();
+        }
+        if ($value === []) {
+            return Type::fromAtomic(new ListType(Type::never(), [], 0, false));
+        }
+
+        if (array_is_list($value)) {
+            $elements = [];
+            foreach ($value as $index => $item) {
+                $elements[] = new ListElement($index, false, self::jsonValueToType($item));
+            }
+
+            return Type::fromAtomic(new ListType(Type::mixed(), $elements, count($elements), true));
+        }
+
+        $items = [];
+        foreach ($value as $key => $item) {
+            $arrayKey = is_int($key)
+                ? new ArrayKey(ArrayKeyKind::Integer, $key)
+                : new ArrayKey(ArrayKeyKind::String, (string) $key);
+            $items[] = new ArrayItem($arrayKey, false, self::jsonValueToType($item));
+        }
+
+        return Type::fromAtomic(new KeyedArrayType($items, null, null, true));
     }
 
     /**
@@ -525,12 +828,13 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
      * } $schema
      */
     private function checkRow(
-        NodeAnalysisContext $context,
+        LifecycleContext $context,
+        string $reportFile,
         Type $type,
         Span $span,
         string $label,
         string $test,
-        string $provider,
+        string $sourceLabel,
         array $schema,
         bool $validateCount,
     ): void {
@@ -539,11 +843,12 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
             if (!PhpUnitVersion::supportsNamedProviderArguments($context->codebase)) {
                 $this->checkPositionalArguments(
                     $context,
+                    $reportFile,
                     array_values($named),
                     $span,
                     $label,
                     $test,
-                    $provider,
+                    $sourceLabel,
                     $schema,
                     $validateCount,
                 );
@@ -552,9 +857,9 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
             }
 
             if ($schema['dependencies'] > 0) {
-                $this->report($context, $span, sprintf(
-                    'Data provider %s() row %s uses named arguments with dependencies for %s(), which fails when PHP unpacks positional dependency results after named arguments.',
-                    $provider,
+                $this->report($context, $reportFile, $span, sprintf(
+                    '%s row %s uses named arguments with dependencies for %s(), which fails when PHP unpacks positional dependency results after named arguments.',
+                    $sourceLabel,
                     $label,
                     $test,
                 ));
@@ -581,18 +886,18 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
             }
 
             if ($missing !== []) {
-                $this->report($context, $span, sprintf(
-                    'Data provider %s() row %s does not provide %s for %s().',
-                    $provider,
+                $this->report($context, $reportFile, $span, sprintf(
+                    '%s row %s does not provide %s for %s().',
+                    $sourceLabel,
                     $label,
                     implode(', ', $missing),
                     $test,
                 ));
             }
             if ($unknown !== []) {
-                $this->report($context, $span, sprintf(
-                    'Data provider %s() row %s provides unknown argument %s for %s().',
-                    $provider,
+                $this->report($context, $reportFile, $span, sprintf(
+                    '%s row %s provides unknown argument %s for %s().',
+                    $sourceLabel,
                     $label,
                     implode(', ', $unknown),
                     $test,
@@ -615,10 +920,11 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
 
                 $this->checkArgumentType(
                     $context,
+                    $reportFile,
                     $span,
                     $label,
                     $test,
-                    $provider,
+                    $sourceLabel,
                     $parameterName,
                     $parameterType,
                     $argumentType,
@@ -631,9 +937,9 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
         $arguments = $this->positionalArguments($type);
         if ($arguments === null) {
             if ($this->isDefinitelyNotArray($type)) {
-                $this->report($context, $span, sprintf(
-                    'Data provider %s() row %s provides %s for %s(), which expects an argument list.',
-                    $provider,
+                $this->report($context, $reportFile, $span, sprintf(
+                    '%s row %s provides %s for %s(), which expects an argument list.',
+                    $sourceLabel,
                     $label,
                     (string) $type,
                     $test,
@@ -643,7 +949,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
             return;
         }
 
-        $this->checkPositionalArguments($context, $arguments, $span, $label, $test, $provider, $schema, $validateCount);
+        $this->checkPositionalArguments($context, $reportFile, $arguments, $span, $label, $test, $sourceLabel, $schema, $validateCount);
     }
 
     /**
@@ -661,20 +967,21 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
      * } $schema
      */
     private function checkPositionalArguments(
-        NodeAnalysisContext $context,
+        LifecycleContext $context,
+        string $reportFile,
         array $arguments,
         Span $span,
         string $label,
         string $test,
-        string $provider,
+        string $sourceLabel,
         array $schema,
         bool $validateCount,
     ): void {
         $count = count($arguments);
         if ($count < $schema['required']) {
-            $this->report($context, $span, sprintf(
-                'Data provider %s() row %s provides %d %s for %s(), which requires %d.',
-                $provider,
+            $this->report($context, $reportFile, $span, sprintf(
+                '%s row %s provides %d %s for %s(), which requires %d.',
+                $sourceLabel,
                 $label,
                 $count,
                 $count === 1 ? 'argument' : 'arguments',
@@ -682,9 +989,9 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
                 $schema['required'],
             ));
         } elseif ($validateCount && !$schema['variadic'] && $count > $schema['accepted']) {
-            $this->report($context, $span, sprintf(
-                'Data provider %s() row %s provides %d arguments for %s(), which accepts %d.',
-                $provider,
+            $this->report($context, $reportFile, $span, sprintf(
+                '%s row %s provides %d arguments for %s(), which accepts %d.',
+                $sourceLabel,
                 $label,
                 $count,
                 $test,
@@ -700,10 +1007,11 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
 
             $this->checkArgumentType(
                 $context,
+                $reportFile,
                 $span,
                 $label,
                 $test,
-                $provider,
+                $sourceLabel,
                 $parameter['name'],
                 $parameter['type'],
                 $argumentType,
@@ -712,11 +1020,12 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
     }
 
     private function checkArgumentType(
-        NodeAnalysisContext $context,
+        LifecycleContext $context,
+        string $reportFile,
         Span $span,
         string $label,
         string $test,
-        string $provider,
+        string $sourceLabel,
         string $parameterName,
         Type $parameterType,
         Type $argumentType,
@@ -728,9 +1037,9 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
             return;
         }
 
-        $this->report($context, $span, sprintf(
-            'Data provider %s() row %s provides %s for $%s of %s(), which expects %s.',
-            $provider,
+        $this->report($context, $reportFile, $span, sprintf(
+            '%s row %s provides %s for $%s of %s(), which expects %s.',
+            $sourceLabel,
             $label,
             (string) $argumentType,
             $parameterName,
@@ -740,6 +1049,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
     }
 
     /**
+     * @param list<ParameterMetadata> $parameters
      * @return array{
      *     dependencies: int,
      *     required: int,
@@ -752,7 +1062,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
      *     variadicParameter: ?array{name: string, type: ?Type},
      * }
      */
-    private function parameterSchema(FunctionLikeMetadata $method, int $dependencies): array
+    private function parameterSchema(array $parameters, int $dependencies): array
     {
         $required = 0;
         $accepted = 0;
@@ -762,7 +1072,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
         $positional = [];
         $named = [];
         $variadicParameter = null;
-        foreach ($method->parameters as $parameter) {
+        foreach ($parameters as $parameter) {
             $name = ltrim($parameter->name, '$');
             $type = $this->parameterType($parameter);
             if ($parameter->flags->contains(MetadataFlags::VARIADIC)) {
@@ -934,12 +1244,12 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
         return true;
     }
 
-    private function report(NodeAnalysisContext $context, Span $span, string $message): void
+    private function report(LifecycleContext $context, string $reportFile, Span $span, string $message): void
     {
         $context->report(
             Level::Error,
             'phpunit-data-provider',
-            Issue::at($message, new SourceLocation($context->analysis->file, $span)),
+            Issue::at($message, new SourceLocation($reportFile, $span)),
         );
     }
 

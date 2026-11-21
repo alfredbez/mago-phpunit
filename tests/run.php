@@ -282,6 +282,30 @@ $expected[false]['tests/fixtures/DataProviderYieldFrom.php'] = [
 $expected[true]['tests/fixtures/DataProviderYieldFrom.php'] = [
     'alfredbez/phpunit/phpunit-data-provider' => 0,
 ];
+$expected[false]['tests/fixtures/DataProviderDependencyVariants.php'] = [
+    'alfredbez/phpunit/phpunit-data-provider' => 3,
+];
+$expected[true]['tests/fixtures/DataProviderDependencyVariants.php'] = [
+    'alfredbez/phpunit/phpunit-data-provider' => 0,
+];
+$expected[false]['tests/fixtures/DataProviderExternalCrossFile.php'] = [
+    'alfredbez/phpunit/phpunit-data-provider' => 0,
+];
+$expected[true]['tests/fixtures/DataProviderExternalCrossFile.php'] = [
+    'alfredbez/phpunit/phpunit-data-provider' => 0,
+];
+$expected[false]['tests/fixtures/ExternalCrossFileProvider.php'] = [
+    'alfredbez/phpunit/phpunit-data-provider' => 3,
+];
+$expected[true]['tests/fixtures/ExternalCrossFileProvider.php'] = [
+    'alfredbez/phpunit/phpunit-data-provider' => 0,
+];
+$expected[false]['tests/fixtures/TestWithAttributes.php'] = [
+    'alfredbez/phpunit/phpunit-data-provider' => 12,
+];
+$expected[true]['tests/fixtures/TestWithAttributes.php'] = [
+    'alfredbez/phpunit/phpunit-data-provider' => 0,
+];
 // PHPUnit 13.1 introduced #[DataProviderClosure]. Earlier versions report the missing attribute class,
 // and the extension adds no issues there.
 $closureProviderSupported = is_file('vendor/phpunit/phpunit/src/Framework/Attributes/DataProviderClosure.php');
@@ -726,6 +750,52 @@ foreach ([
 ] as $needle => $count) {
     $failures += assertMessageCount('with extension', $with, $dataProviderClosureCounterFile, $dataProvider, $needle, $count);
 }
+$dependencyVariantsFile = 'tests/fixtures/DataProviderDependencyVariants.php';
+foreach ([
+    'for testDependsDeepClone()' => 0,
+    'for testDependsShallowClone()' => 0,
+    'for testDependsExternal()' => 0,
+    'for testDependsExternalDeepClone()' => 0,
+    'for testDependsExternalShallowClone()' => 0,
+    'singleRows() row #0 provides 1 argument for testDependsOnClassDoesNotSupplyArgument(), which requires 2.' => 1,
+    'singleRows() row #0 provides 1 argument for testDependsOnClassDeepCloneDoesNotSupplyArgument(), which requires 2.' => 1,
+    'singleRows() row #0 provides 1 argument for testDependsOnClassShallowCloneDoesNotSupplyArgument(), which requires 2.' => 1,
+] as $needle => $count) {
+    $failures += assertMessageCount('with extension', $with, $dependencyVariantsFile, $dataProvider, $needle, $count);
+}
+$crossFileProvider = 'tests/fixtures/ExternalCrossFileProvider.php';
+foreach ([
+    'for testCrossFileValid()' => 0,
+    'invalidRows() row #0 provides 1 argument for testCrossFileInvalid(), which requires 2.' => 1,
+    'invalidRows() row #1 provides string for $n of testCrossFileInvalid(), which expects int.' => 1,
+    'invalidRows() row #2 provides 3 arguments for testCrossFileInvalid(), which accepts 2.' => 1,
+] as $needle => $count) {
+    $failures += assertMessageCount('with extension', $with, $crossFileProvider, $dataProvider, $needle, $count);
+}
+$testWithFile = 'tests/fixtures/TestWithAttributes.php';
+foreach ([
+    'Attribute #[TestWith] row #1 provides 1 argument for testPositionalTestWith(), which requires 2.' => 1,
+    'Attribute #[TestWith] row #2 provides 3 arguments for testPositionalTestWith(), which accepts 2.' => 1,
+    'Attribute #[TestWith] row #3 provides string for $n of testPositionalTestWith(), which expects int.' => 1,
+    ($namedProviderArgs
+        ? 'Attribute #[TestWith] row #1 does not provide $label for testNamedTestWith().'
+        : 'Attribute #[TestWith] row #1 provides 1 argument for testNamedTestWith(), which requires 2.') => 1,
+    ($namedProviderArgs
+        ? 'Attribute #[TestWith] row #2 provides unknown argument $extra for testNamedTestWith().'
+        : 'Attribute #[TestWith] row #2 provides 3 arguments for testNamedTestWith(), which accepts 2.') => 1,
+    'Attribute #[TestWith] row #3 provides string for $n of testNamedTestWith(), which expects int.' => 1,
+    'for testTestWithAndDependency()' => 0,
+    'Attribute #[TestWithJson] row #1 provides 1 argument for testTestWithJson(), which requires 2.' => 1,
+    'Attribute #[TestWithJson] row #2 provides 3 arguments for testTestWithJson(), which accepts 2.' => 1,
+    "Attribute #[TestWithJson] row #3 provides 'wrong' for \$n of testTestWithJson(), which expects int." => 1,
+    ($namedProviderArgs
+        ? 'Attribute #[TestWithJson] row #5 does not provide $label for testTestWithJson().'
+        : 'Attribute #[TestWithJson] row #5 provides 1 argument for testTestWithJson(), which requires 2.') => 1,
+    'Attribute #[TestWithJson] row #6 for testTestWithJson() contains invalid JSON.' => 1,
+    'Attribute #[TestWithJson] row #7 provides int for testTestWithJson(), which expects an argument list.' => 1,
+] as $needle => $count) {
+    $failures += assertMessageCount('with extension', $with, $testWithFile, $dataProvider, $needle, $count);
+}
 foreach ($with as $issue) {
     if (
         (
@@ -734,6 +804,9 @@ foreach ($with as $issue) {
             || $issue['file'] === $dataProviderYieldFromFile
             || $issue['file'] === $dataProviderClosurePositiveFile
             || $issue['file'] === $dataProviderClosureCounterFile
+            || $issue['file'] === $dependencyVariantsFile
+            || $issue['file'] === $crossFileProvider
+            || $issue['file'] === $testWithFile
         )
         && $issue['code'] === $dataProvider
         && $issue['level'] !== 'Error'

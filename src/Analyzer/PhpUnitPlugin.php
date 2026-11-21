@@ -29,6 +29,7 @@ final class PhpUnitPlugin implements Plugin
 
     public function register(PluginRegistry $registry): void
     {
+        $dataProviders = new DataProviderArguments();
         $registry->enableProviderMemoization();
         $registry->registerMethodAssertionProvider(new AssertArrayHasKeyAssertion());
         $registry->registerFunctionAssertionProvider(new AssertArrayHasKeyFunctionAssertion());
@@ -36,6 +37,7 @@ final class PhpUnitPlugin implements Plugin
         $registry->registerFunctionAssertionProvider(new PhpUnitFunctionAssertions());
         $registry->registerMethodAssertionProvider(new ContainsOnlyInstancesAssertion());
         $registry->registerClassInitializerProvider(new SetUpInitializer());
-        $registry->registerClassLikeAnalysisHook(new DataProviderArguments());
+        $registry->registerClassLikeAnalysisHook($dataProviders);
+        $registry->registerAfterAnalysisHook($dataProviders);
     }
 }

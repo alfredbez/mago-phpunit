@@ -276,6 +276,45 @@
       "versions": "Red before implementation and green after it on Mago 1.60.2 / PHP 8.4 / PHPUnit 12.5.40. Psalm pinned TestCase.feature supplies the inherited Before hypothesis. Annotation-based @before and hook priority/order inference are outside this case.",
       "coverage": ["tests/fixtures/BeforeInitializer.php", "tests/runtime/BeforeInitializerTest.php", "tests/run.php"],
       "status": "covered"
+    },
+    {
+      "id": "PHPUNIT-D006",
+      "title": "TestWith and TestWithJson validate inline rows against test parameters",
+      "sources": ["phpunit-providers"],
+      "fixture": "<?php use PHPUnit\\Framework\\Attributes\\TestWith; use PHPUnit\\Framework\\Attributes\\TestWithJson; use PHPUnit\\Framework\\TestCase; final class InlineRowsTest extends TestCase { #[TestWith([1, 'ok'])] #[TestWithJson('[2, \"ok\"]')] public function testRow(int $n, string $label): void {} }",
+      "semantics": "TestWith passes an inline PHP array and TestWithJson passes a JSON-decoded array as test arguments, respecting dependency slots and named keys.",
+      "analyzer_expectation": "Report arity mismatches, type mismatches, unknown or missing named keys, invalid JSON, and non-array JSON payloads while accepting valid rows.",
+      "negative_control": "Wrong arity, incompatible types, missing named keys, malformed JSON, and scalar JSON payloads report diagnostics; disabling extensions removes all twelve.",
+      "priority": "P1",
+      "versions": "Verified on Mago 1.60.2 / PHP 8.3 / PHPUnit 12.5.40.",
+      "coverage": ["tests/fixtures/TestWithAttributes.php", "tests/runtime/TestWithAndDependencyVariantsTest.php", "tests/run.php"],
+      "status": "covered"
+    },
+    {
+      "id": "PHPUNIT-D007",
+      "title": "Method dependency variants supply arguments while class dependencies do not",
+      "sources": ["phpunit-dependencies"],
+      "fixture": "<?php use PHPUnit\\Framework\\Attributes\\DataProvider; use PHPUnit\\Framework\\Attributes\\DependsExternal; use PHPUnit\\Framework\\TestCase; final class DepVariantTest extends TestCase { public static function rows(): array { return [['a']]; } #[DataProvider('rows')] #[DependsExternal(OtherTest::class, 'testSeed')] public function testDep(string $a, string $seed): void {} }",
+      "semantics": "Depends, DependsExternal, and their DeepClone/ShallowClone variants pass dependency return values after provider arguments; DependsOnClass variants do not pass arguments.",
+      "analyzer_expectation": "Count all six method-dependency attributes as supplied argument slots and do not count DependsOnClass variants.",
+      "negative_control": "DependsOnClass, DependsOnClassUsingDeepClone, and DependsOnClassUsingShallowClone still report missing required arguments; runtime test asserts func_num_args() === 1.",
+      "priority": "P1",
+      "versions": "Verified on Mago 1.60.2 / PHP 8.3 / PHPUnit 12.5.40.",
+      "coverage": ["tests/fixtures/DataProviderDependencyVariants.php", "tests/runtime/TestWithAndDependencyVariantsTest.php", "tests/run.php"],
+      "status": "covered"
+    },
+    {
+      "id": "PHPUNIT-D008",
+      "title": "DataProviderExternal validates providers defined in separate files",
+      "sources": ["phpunit-providers"],
+      "fixture": "<?php use PHPUnit\\Framework\\Attributes\\DataProviderExternal; use PHPUnit\\Framework\\TestCase; final class CrossFileTest extends TestCase { #[DataProviderExternal(ExternalProvider::class, 'rows')] public function testRow(int $n, string $label): void {} }",
+      "semantics": "DataProviderExternal can reference a public static method declared in another file.",
+      "analyzer_expectation": "Resolve cross-file external providers in AfterAnalysisHook and validate row arity and types against the test signature.",
+      "negative_control": "Valid cross-file rows produce zero diagnostics; invalid rows report arity and type errors in ExternalCrossFileProvider.php; disabling extensions removes all three.",
+      "priority": "P1",
+      "versions": "Verified on Mago 1.60.2 / PHP 8.3 / PHPUnit 12.5.40.",
+      "coverage": ["tests/fixtures/DataProviderExternalCrossFile.php", "tests/fixtures/ExternalCrossFileProvider.php", "tests/runtime/TestWithAndDependencyVariantsTest.php", "tests/run.php"],
+      "status": "covered"
     }
   ]
 }

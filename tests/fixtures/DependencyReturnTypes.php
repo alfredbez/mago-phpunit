@@ -91,6 +91,13 @@ final class DependencyReturnTypesTest extends TestCase
     {
     }
 
+    #[Depends('testIntProducer')]
+    #[Depends('testIntProducer')]
+    #[Depends('testStringProducer')]
+    public function testRepeatedDependencyDeduplicated(int $a, string $b): void
+    {
+    }
+
     #[DataProvider('stringRows')]
     #[Depends('testIntProducer')]
     #[DependsExternal(ExternalTypedProducerTest::class, 'testReturnString')]

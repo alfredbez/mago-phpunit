@@ -276,7 +276,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                     $providerNode = $classMethods[$providerMethodKey]['node'];
                 } else {
                     $providerNode = null;
-                    if (stripos($contents, 'function ' . $provider['method']) !== false) {
+                    if (preg_match('/\bfunction\s+&?\s*' . preg_quote($provider['method'], '/') . '\b/i', $contents) === 1) {
                         if ($fullSource === null) {
                             $fullSource = $context->analysis->getSourceFile();
                             $fileMethods = $this->methodsInFile($fullSource);
@@ -728,12 +728,31 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
      */
     private function valuePassingDependencies(LifecycleContext $context, array $dependencies): array
     {
-        if ($dependencies === [] || !PhpUnitVersion::skipsVoidDependencyReturnValue($context->codebase)) {
-            return $dependencies;
+        if ($dependencies === []) {
+            return [];
+        }
+
+        // PHPUnit keys dependency inputs by producer target, so repeated #[Depends]
+        // attributes targeting the same producer occupy a single parameter slot.
+        $deduped = [];
+        $seen = [];
+        foreach ($dependencies as $dependency) {
+            if ($dependency['class'] !== null && $dependency['method'] !== null) {
+                $key = strtolower($dependency['class'] . '::' . $dependency['method']);
+                if (isset($seen[$key])) {
+                    continue;
+                }
+                $seen[$key] = true;
+            }
+            $deduped[] = $dependency;
+        }
+
+        if (!PhpUnitVersion::skipsVoidDependencyReturnValue($context->codebase)) {
+            return $deduped;
         }
 
         $passing = [];
-        foreach ($dependencies as $dependency) {
+        foreach ($deduped as $dependency) {
             if ($dependency['class'] !== null && $dependency['method'] !== null) {
                 $producer = $context->codebase->getMethod($dependency['class'], $dependency['method']);
                 $declared = $producer?->declaredReturnType?->type;
@@ -1877,18 +1896,27 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
 
             $varNode = null;
             $hintNode = null;
-            $hasDefault = false;
+            $defaultNode = null;
             foreach ($source->getChildren($param) as $part) {
                 if ($part->kind === NodeKind::DirectVariable) {
                     $varNode = $part;
                 } elseif ($part->kind === NodeKind::Hint) {
                     $hintNode = $part;
                 } elseif ($part->kind === NodeKind::FunctionLikeParameterDefaultValue) {
-                    $hasDefault = true;
+                    $defaultNode = $part;
                 }
             }
+            $hasDefault = $defaultNode !== null;
             if ($varNode === null) {
                 return null;
+            }
+            if ($defaultNode !== null && $hintNode !== null) {
+                $defaultText = strtolower(trim(ltrim(trim($source->getText($defaultNode)), '=')));
+                if ($defaultText === 'null') {
+                    // Fall back to Mago metadata so PHP's implicitly nullable parameters
+                    // (e.g. `string $v = null`) retain their exact nullability.
+                    return null;
+                }
             }
 
             $name = ltrim($source->getText($varNode), '$');

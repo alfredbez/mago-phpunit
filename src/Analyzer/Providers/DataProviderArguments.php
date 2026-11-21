@@ -855,10 +855,28 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
         $named = $this->namedArguments($type);
         if ($named !== null) {
             if (!PhpUnitVersion::supportsNamedProviderArguments($context->codebase)) {
-                $this->checkPositionalArguments(
+                if (count($named) <= 1) {
+                    $this->checkPositionalArguments(
+                        $context,
+                        $reportFile,
+                        array_values($named),
+                        $span,
+                        $label,
+                        $test,
+                        $sourceLabel,
+                        $schema,
+                        $validateCount,
+                    );
+
+                    return;
+                }
+
+                // Mago sorts string keys in KeyedArrayType alphabetically, losing PHP insertion order
+                // for array_values() unpacking on PHPUnit 10.5. Validate arity only for multi-key rows.
+                $this->checkPositionalArity(
                     $context,
                     $reportFile,
-                    array_values($named),
+                    count($named),
                     $span,
                     $label,
                     $test,
@@ -991,7 +1009,62 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
         array $schema,
         bool $validateCount,
     ): void {
-        $count = count($arguments);
+        $this->checkPositionalArity(
+            $context,
+            $reportFile,
+            count($arguments),
+            $span,
+            $label,
+            $test,
+            $sourceLabel,
+            $schema,
+            $validateCount,
+        );
+
+        foreach ($arguments as $index => $argumentType) {
+            $parameter = $schema['positional'][$index] ?? $schema['variadicParameter'];
+            if ($parameter === null || $parameter['type'] === null) {
+                continue;
+            }
+
+            $this->checkArgumentType(
+                $context,
+                $reportFile,
+                $span,
+                $label,
+                $test,
+                $sourceLabel,
+                $parameter['name'],
+                $parameter['type'],
+                $argumentType,
+            );
+        }
+    }
+
+    /**
+     * @param array{
+     *     required: int,
+     *     accepted: int,
+     *     variadic: bool,
+     *     names: list<string>,
+     *     requiredNames: list<string>,
+     *     positional: list<array{name: string, type: ?Type}>,
+     *     named: array<string, ?Type>,
+     *     variadicParameter: ?array{name: string, type: ?Type},
+     *     dependencies: int,
+     * } $schema
+     */
+    private function checkPositionalArity(
+        LifecycleContext $context,
+        string $reportFile,
+        int $count,
+        Span $span,
+        string $label,
+        string $test,
+        string $sourceLabel,
+        array $schema,
+        bool $validateCount,
+    ): void {
         if ($count < $schema['required']) {
             $this->report($context, $reportFile, $span, sprintf(
                 '%s row %s provides %d %s for %s(), which requires %d.',
@@ -1011,25 +1084,6 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                 $test,
                 $schema['accepted'],
             ));
-        }
-
-        foreach ($arguments as $index => $argumentType) {
-            $parameter = $schema['positional'][$index] ?? $schema['variadicParameter'];
-            if ($parameter === null || $parameter['type'] === null) {
-                continue;
-            }
-
-            $this->checkArgumentType(
-                $context,
-                $reportFile,
-                $span,
-                $label,
-                $test,
-                $sourceLabel,
-                $parameter['name'],
-                $parameter['type'],
-                $argumentType,
-            );
         }
     }
 

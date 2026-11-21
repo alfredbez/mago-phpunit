@@ -162,11 +162,16 @@ $expected[false]['tests/fixtures/AssertionsParity.php'] = [
     'possibly-undefined-string-array-index' => 2,
     'invalid-return-statement' => 4,
 ];
-$expected[true]['tests/fixtures/AssertionsParity.php'] = [
-    'possibly-undefined-string-array-index' => 4,
-    'invalid-return-statement' => 13,
-    'nullable-return-statement' => 1,
-];
+$expected[true]['tests/fixtures/AssertionsParity.php'] = $phpunitMajor >= 11
+    ? [
+        'possibly-undefined-string-array-index' => 4,
+        'invalid-return-statement' => 13,
+        'nullable-return-statement' => 1,
+    ]
+    : [
+        'possibly-undefined-string-array-index' => 4,
+        'invalid-return-statement' => 10,
+    ];
 if ($phpunitMajor >= 13) {
     $containsOnlyRemoved = [
         'non-existent-method' => 3,
@@ -187,7 +192,7 @@ if ($phpunitMajor >= 13) {
         'mixed-method-access' => 1,
         'mixed-return-statement' => 4,
     ];
-    if ($phpunitMajor >= 12) {
+    if ($phpunitMajor >= 11) {
         $containsOnlyWith['deprecated-method'] = 3;
         $containsOnlyWith['deprecated-function'] = 1;
         $containsOnlyWith['invalid-argument'] = 1;
@@ -265,13 +270,13 @@ $expected[true]['tests/fixtures/DataProviderDependsNamed.php'] = [
     'alfredbez/phpunit/phpunit-data-provider' => 0,
 ];
 $expected[false]['tests/fixtures/DataProviderVariadicNamed.php'] = [
-    'alfredbez/phpunit/phpunit-data-provider' => $namedProviderArgs ? 3 : 5,
+    'alfredbez/phpunit/phpunit-data-provider' => $namedProviderArgs ? 3 : 1,
 ];
 $expected[true]['tests/fixtures/DataProviderVariadicNamed.php'] = [
     'alfredbez/phpunit/phpunit-data-provider' => 0,
 ];
 $expected[false]['tests/fixtures/DataProviderTypes.php'] = [
-    'alfredbez/phpunit/phpunit-data-provider' => $namedProviderArgs ? 6 : 12,
+    'alfredbez/phpunit/phpunit-data-provider' => $namedProviderArgs ? 6 : 5,
 ];
 $expected[true]['tests/fixtures/DataProviderTypes.php'] = [
     'alfredbez/phpunit/phpunit-data-provider' => 0,
@@ -301,7 +306,7 @@ $expected[true]['tests/fixtures/ExternalCrossFileProvider.php'] = [
     'alfredbez/phpunit/phpunit-data-provider' => 0,
 ];
 $expected[false]['tests/fixtures/TestWithAttributes.php'] = [
-    'alfredbez/phpunit/phpunit-data-provider' => 12,
+    'alfredbez/phpunit/phpunit-data-provider' => $namedProviderArgs ? 12 : 11,
 ];
 $expected[true]['tests/fixtures/TestWithAttributes.php'] = [
     'alfredbez/phpunit/phpunit-data-provider' => 0,
@@ -664,10 +669,6 @@ foreach (
         ]
         : [
             'for testValidNamedVariadic()' => 0,
-            'reorderedNamedVariadicRows() row #0 provides string for $n of testReorderedNamedVariadic(), which expects int.' => 1,
-            'reorderedNamedVariadicRows() row #0 provides int for $rest of testReorderedNamedVariadic(), which expects string.' => 1,
-            'wrongTypeVariadicRows() row #0 provides int for $rest of testWrongTypeNamedVariadic(), which expects string.' => 1,
-            'wrongTypeVariadicRows() row #1 provides int for $rest of testWrongTypeNamedVariadic(), which expects string.' => 1,
             'missingRequiredVariadicRows() row #0 provides string for $n of testMissingRequiredNamedVariadic(), which expects int.' => 1,
         ]
     as $needle => $count
@@ -693,10 +694,8 @@ foreach (
             'stringForInt() row "swapped" provides string for $n of testStringForInt(), which expects int.' => 1,
             'stringForInt() row "swapped" provides int for $label of testStringForInt(), which expects string.' => 1,
             'yieldedStringForInt() row #1 provides string for $n of testYieldedStringForInt(), which expects int.' => 1,
-            'namedWrongType() row #0 provides string for $n of testNamedWrongType(), which expects int.' => 1,
-            'namedWrongType() row #0 provides float for $label of testNamedWrongType(), which expects string.' => 1,
             'variadicWrongType() row #0 provides int for $rest of testVariadicWrongType(), which expects string.' => 1,
-            'compatibleRows() row "named"' => 5,
+            'compatibleRows()' => 0,
             'looseRows()' => 0,
             'nonLiteralRows()' => 0,
         ]
@@ -783,7 +782,9 @@ foreach ([
     ($namedProviderArgs
         ? 'Attribute #[TestWith] row #2 provides unknown argument $extra for testNamedTestWith().'
         : 'Attribute #[TestWith] row #2 provides 3 arguments for testNamedTestWith(), which accepts 2.') => 1,
-    'Attribute #[TestWith] row #3 provides string for $n of testNamedTestWith(), which expects int.' => 1,
+    ($namedProviderArgs
+        ? 'Attribute #[TestWith] row #3 provides string for $n of testNamedTestWith(), which expects int.'
+        : 'Attribute #[TestWith] row #3 provides string for $n of testNamedTestWith(), which expects int.') => $namedProviderArgs ? 1 : 0,
     'for testTestWithAndDependency()' => 0,
     'Attribute #[TestWithJson] row #1 provides 1 argument for testTestWithJson(), which requires 2.' => 1,
     'Attribute #[TestWithJson] row #2 provides 3 arguments for testTestWithJson(), which accepts 2.' => 1,

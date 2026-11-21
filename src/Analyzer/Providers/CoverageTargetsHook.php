@@ -69,15 +69,14 @@ final class CoverageTargetsHook implements ClassLikeAnalysisHook
 
         $source = $context->source;
         $classNode = $context->node;
-        $namespace = $this->enclosingNamespace($source, $classNode);
 
-        $this->checkAttributeContainer($context, $source, $classNode, $namespace);
+        $this->checkAttributeContainer($context, $source, $classNode);
         foreach ($source->getChildren($classNode) as $member) {
             $method = $member->kind === NodeKind::Method
                 ? $member
                 : ($member->kind === NodeKind::ClassLikeMember ? ($source->getChildren($member)[0] ?? null) : null);
             if ($method !== null && $method->kind === NodeKind::Method) {
-                $this->checkAttributeContainer($context, $source, $method, $namespace);
+                $this->checkAttributeContainer($context, $source, $method);
             }
         }
     }
@@ -86,7 +85,6 @@ final class CoverageTargetsHook implements ClassLikeAnalysisHook
         NodeAnalysisContext $context,
         SourceFile $source,
         Node $container,
-        string $namespace,
     ): void {
         foreach ($source->getChildren($container) as $attributeList) {
             if ($attributeList->kind !== NodeKind::AttributeList) {
@@ -111,7 +109,7 @@ final class CoverageTargetsHook implements ClassLikeAnalysisHook
                 } elseif (isset(self::METHOD_TARGETS[$lower])) {
                     $this->checkMethodTarget($context, $source, $attribute, self::METHOD_TARGETS[$lower]);
                 } elseif (isset(self::FUNCTION_TARGETS[$lower])) {
-                    $this->checkFunctionTarget($context, $source, $attribute, self::FUNCTION_TARGETS[$lower], $namespace);
+                    $this->checkFunctionTarget($context, $source, $attribute, self::FUNCTION_TARGETS[$lower]);
                 }
             }
         }
@@ -134,7 +132,7 @@ final class CoverageTargetsHook implements ClassLikeAnalysisHook
             return;
         }
 
-        if (!$context->codebase->classOrInterfaceExists($targetClass) && !$context->codebase->enumExists($targetClass)) {
+        if (!$context->codebase->classLikeExists($targetClass)) {
             $this->report(
                 $context,
                 $classArg->span,
@@ -217,7 +215,6 @@ final class CoverageTargetsHook implements ClassLikeAnalysisHook
         SourceFile $source,
         Node $attribute,
         string $label,
-        string $namespace,
     ): void {
         $args = $this->attributeArguments($source, $attribute);
         $funcArg = $this->attributeArgument($source, $args, 0, 'functionName');
@@ -235,21 +232,8 @@ final class CoverageTargetsHook implements ClassLikeAnalysisHook
             return;
         }
 
-        $candidates = [$normalized];
-        if (!str_starts_with($funcName, '\\') && !str_contains($normalized, '\\') && $namespace !== '') {
-            $candidates[] = $namespace . '\\' . $normalized;
-        }
-
-        foreach ($context->codebase->checkMultipleFunctionsExist($candidates) as $exists) {
-            if ($exists) {
-                return;
-            }
-        }
-
-        foreach ($candidates as $candidate) {
-            if (function_exists($candidate)) {
-                return;
-            }
+        if ($context->codebase->functionExists($normalized) || function_exists($normalized)) {
+            return;
         }
 
         $this->report(
@@ -261,11 +245,29 @@ final class CoverageTargetsHook implements ClassLikeAnalysisHook
 
     private function extractClassReference(SourceFile $source, Node $argument): ?string
     {
-        foreach ($source->getResolvedNames($argument) as $resolved) {
-            $name = ltrim($resolved->name, '\\');
-            if ($name !== '' && strtolower($name) !== 'class') {
-                return $name;
+        $expr = $this->unwrapArgumentValue($source, $argument);
+        if ($expr === null) {
+            return null;
+        }
+
+        if ($expr->kind === NodeKind::ClassConstantAccess) {
+            $children = $source->getChildren($expr);
+            $classNode = $children[0] ?? null;
+            $selector = $children[1] ?? null;
+            if ($classNode === null || $selector === null || strtolower(trim($source->getText($selector))) !== 'class') {
+                return null;
             }
+
+            foreach ($source->getResolvedNames($classNode) as $resolved) {
+                $name = ltrim($resolved->name, '\\');
+                if ($name !== '' && strtolower($name) !== 'class') {
+                    return $name;
+                }
+            }
+
+            $raw = ltrim(trim($source->getText($classNode)), '\\');
+
+            return $raw !== '' ? $raw : null;
         }
 
         $literal = $this->literalString($source, $argument);
@@ -278,25 +280,28 @@ final class CoverageTargetsHook implements ClassLikeAnalysisHook
         return null;
     }
 
-    private function enclosingNamespace(SourceFile $source, Node $node): string
+    private function unwrapArgumentValue(SourceFile $source, Node $argument): ?Node
     {
-        $current = $source->getParent($node);
-        while ($current !== null) {
-            if ($current->kind === NodeKind::Namespace) {
-                foreach ($source->getChildren($current) as $child) {
-                    if (
-                        $child->kind === NodeKind::Identifier
-                        || $child->kind === NodeKind::LocalIdentifier
-                        || $child->kind === NodeKind::QualifiedIdentifier
-                    ) {
-                        return ltrim(trim($source->getText($child)), '\\');
-                    }
-                }
-            }
-            $current = $source->getParent($current);
+        $node = $argument;
+        if ($node->kind === NodeKind::PositionalArgument) {
+            $node = $source->getChildren($node)[0] ?? null;
+        } elseif ($node->kind === NodeKind::NamedArgument) {
+            $node = $source->getChildren($node)[1] ?? null;
         }
 
-        return '';
+        while (
+            $node !== null
+            && (
+                $node->kind === NodeKind::Expression
+                || $node->kind === NodeKind::Access
+                || $node->kind === NodeKind::Parenthesized
+                || $node->kind === NodeKind::Literal
+            )
+        ) {
+            $node = $source->getChildren($node)[0] ?? null;
+        }
+
+        return $node;
     }
 
     private function attributeName(SourceFile $source, Node $attribute): ?string
@@ -375,14 +380,12 @@ final class CoverageTargetsHook implements ClassLikeAnalysisHook
             return null;
         }
 
-        $literal = $argument->kind === NodeKind::LiteralString
-            ? $argument
-            : $source->getFirstDescendant($argument, NodeKind::LiteralString);
-        if ($literal === null) {
+        $expr = $this->unwrapArgumentValue($source, $argument);
+        if ($expr === null || $expr->kind !== NodeKind::LiteralString) {
             return null;
         }
 
-        return $source->getLiteralString($literal) ?? $this->decodeQuoted($source->getText($literal));
+        return $source->getLiteralString($expr) ?? $this->decodeQuoted($source->getText($expr));
     }
 
     private function decodeQuoted(string $text): ?string

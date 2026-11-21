@@ -50,14 +50,22 @@ function coverageHelperFunction(): int
     return 1;
 }
 
+final class CoverageTargetConstants
+{
+    public const TRAIT_NAME = CoverageHelperTrait::class;
+    public const FUNC_PREFIX = 'AlfredBez\\MagoPhpunit\\Fixtures\\';
+}
+
 #[CoversClass(CoverageSubject::class)]
 #[CoversTrait(CoverageHelperTrait::class)]
+#[CoversTrait(CoverageTargetConstants::TRAIT_NAME)]
 #[CoversMethod(CoverageSubject::class, 'run')]
 #[CoversMethod(CoverageSubject::class, 'inheritedMethod')]
 #[CoversMethod(CoverageSubject::class, 'fromTrait')]
 #[CoversMethod(CoverageSubject::class, 'hiddenMethod')]
 #[CoversMethod(CoverageSubject::class, 'RUN')]
 #[CoversFunction('AlfredBez\\MagoPhpunit\\Fixtures\\coverageHelperFunction')]
+#[CoversFunction(CoverageTargetConstants::FUNC_PREFIX . 'coverageHelperFunction')]
 #[UsesClass(CoverageBaseSubject::class)]
 #[UsesTrait(CoverageHelperTrait::class)]
 #[UsesMethod(CoverageSubject::class, 'run')]
@@ -78,6 +86,7 @@ final class ValidCoverageTargetsTest extends TestCase
 #[UsesMethod(CoverageSubject::class, 'nonExistentUsedMethod')]
 #[CoversFunction('AlfredBez\\MagoPhpunit\\Fixtures\\nonExistentCoveredFunction')]
 #[UsesFunction('\\AlfredBez\\MagoPhpunit\\Fixtures\\nonExistentUsedFunction')]
+#[CoversFunction('coverageHelperFunction')]
 final class InvalidCoverageTargetsTest extends TestCase
 {
     public function testInvalidTargets(): void

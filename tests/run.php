@@ -329,11 +329,11 @@ $expected[true]['tests/fixtures/IntersectionMocks.php'] = [
 $coversMethodSupported = class_exists(\PHPUnit\Framework\Attributes\CoversMethod::class);
 $coversTraitSupported = class_exists(\PHPUnit\Framework\Attributes\CoversTrait::class);
 $expected[false]['tests/fixtures/CoverageTargets.php'] = [
-    'alfredbez/phpunit/phpunit-invalid-covers-target' => 8,
-    'non-existent-attribute-class' => ($coversMethodSupported ? 0 : 8) + ($coversTraitSupported ? 0 : 4),
+    'alfredbez/phpunit/phpunit-invalid-covers-target' => 9,
+    'non-existent-attribute-class' => ($coversMethodSupported ? 0 : 8) + ($coversTraitSupported ? 0 : 5),
 ];
 $expected[true]['tests/fixtures/CoverageTargets.php'] = [
-    'non-existent-attribute-class' => ($coversMethodSupported ? 0 : 8) + ($coversTraitSupported ? 0 : 4),
+    'non-existent-attribute-class' => ($coversMethodSupported ? 0 : 8) + ($coversTraitSupported ? 0 : 5),
 ];
 $expected[false]['tests/fixtures/MockMethodCalls.php'] = [
     'alfredbez/phpunit/phpunit-unknown-mocked-method' => 7,
@@ -863,6 +863,7 @@ foreach ([
     '#[UsesMethod] target method `AlfredBez\\MagoPhpunit\\Fixtures\\CoverageSubject::nonExistentUsedMethod()` does not exist.' => 1,
     '#[CoversFunction] target function `AlfredBez\\MagoPhpunit\\Fixtures\\nonExistentCoveredFunction` does not exist.' => 1,
     '#[UsesFunction] target function `AlfredBez\\MagoPhpunit\\Fixtures\\nonExistentUsedFunction` does not exist.' => 1,
+    '#[CoversFunction] target function `coverageHelperFunction` does not exist.' => 1,
 ] as $needle => $count) {
     $failures += assertMessageCount('with extension', $with, 'tests/fixtures/CoverageTargets.php', $coversCode, $needle, $count);
 }

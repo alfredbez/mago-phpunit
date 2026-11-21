@@ -1,0 +1,5 @@
+$schema: https://raw.githubusercontent.com/CodSpeedHQ/codspeed/refs/heads/main/schemas/codspeed.schema.json
+
+benchmarks:
+  - id: phpunit-analyzer
+    entrypoint: python3 -B -m pytest -p no:cacheprovider bench/test_benchmarks.py --codspeed

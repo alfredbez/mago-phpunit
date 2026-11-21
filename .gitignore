@@ -1,2 +1,4 @@
 /vendor/
 .phpunit.cache/
+/bench/fixtures/Batch*.php
+/bench/__pycache__/

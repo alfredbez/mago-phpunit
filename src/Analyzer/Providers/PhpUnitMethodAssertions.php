@@ -115,6 +115,15 @@ final class PhpUnitMethodAssertions implements MethodAssertionProvider
             return null;
         }
 
+        $actualType = $context->invocation->getArgument(0, 'actual')?->type;
+        if (
+            $actualType instanceof Type
+            && count($actualType->atomicTypes) === 1
+            && $actualType->atomicTypes[0] instanceof Type\MixedType
+        ) {
+            return null;
+        }
+
         return new InvocationAssertions(
             assertions: [
                 '$actual' => [

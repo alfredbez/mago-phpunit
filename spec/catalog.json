@@ -4,17 +4,20 @@
     "phpstan-assert-functions": {
       "url": "https://github.com/phpstan/phpstan-phpunit/blob/8dbdc3a3e2d7c5dfea655d20ecca5bc9b1b1e441/tests/Type/PHPUnit/data/assert-function.php",
       "kind": "analyzer-test",
-      "scope": "arrayHasNumericKey, arrayHasStringKey, arrayHasExprKey; not the extension implementation"
+      "scope": "arrayHasNumericKey, arrayHasStringKey, arrayHasExprKey; not the extension implementation",
+      "sha256": "e4407a9edd52c53e144b2a3b4c2674718fc16293171ae606746f44e26b8e9d74"
     },
     "psalm-testcase": {
       "url": "https://github.com/psalm/psalm-plugin-phpunit/blob/01a0871ba04710331779a3a80c3caabc5427339c/tests/acceptance/TestCase.feature",
       "kind": "analyzer-test",
-      "scope": "setUp, Before, provider row shape, required/default/variadic arguments; legacy examples are not modern PHPUnit contracts"
+      "scope": "setUp, Before, provider row shape, required/default/variadic arguments; legacy examples are not modern PHPUnit contracts",
+      "sha256": "95c9b159a75b432f6ff322365bdfe623fafe35cab2c4c8b5970728f864605f07"
     },
     "phpunit-array-key": {
       "url": "https://github.com/sebastianbergmann/phpunit/blob/fef037fe50d20ce826cdbd741b7a2afcdec5f45b/tests/unit/Framework/Assert/assertArrayHasKeyTest.php",
       "kind": "runtime-test",
-      "scope": "PHPUnit 12.5.0; string/integer keys, ArrayAccess, success and failure datasets"
+      "scope": "PHPUnit 12.5.0; string/integer keys, ArrayAccess, success and failure datasets",
+      "sha256": "dc05ce4e4dd4da59611ae0a59b670ab88cc4f76783ddd0034aae185dedf23751"
     },
     "phpunit-assertions": {
       "url": "https://docs.phpunit.de/en/12.5/assertions.html",

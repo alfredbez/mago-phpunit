@@ -45,22 +45,46 @@
       "scope": "historical native Mago gap, not evidence of a gap in this extension"
     },
     "psalm-intersection-mocks": {
-      "url": "https://github.com/psalm/psalm-plugin-phpunit/blob/b4534fb884c39821f332c2d95e1a036c6244f632/tests/acceptance/IntersectionMocks.feature",
+      "url": "https://github.com/psalm/psalm-plugin-phpunit/blob/e160c6311d7b83f8e52268bc9edc2834d0536958/tests/acceptance/IntersectionMocks.feature",
       "kind": "analyzer-test",
       "scope": "createMockForIntersectionOfInterfaces() and createStubForIntersectionOfInterfaces() return type narrowing for literal lists of >=2 interfaces",
       "sha256": "048adbc703290f8c131c03f0ed4e88dd01c58fca67931fc109cebb22f04f38ca"
     },
     "psalm-covers-targets": {
-      "url": "https://github.com/psalm/psalm-plugin-phpunit/blob/b4534fb884c39821f332c2d95e1a036c6244f632/tests/acceptance/CoversTargets.feature",
+      "url": "https://github.com/psalm/psalm-plugin-phpunit/blob/e160c6311d7b83f8e52268bc9edc2834d0536958/tests/acceptance/CoversTargets.feature",
       "kind": "analyzer-test",
       "scope": "Validation of #[CoversClass], #[CoversTrait], #[CoversMethod], #[CoversFunction], #[UsesClass], #[UsesTrait], #[UsesMethod], and #[UsesFunction] targets",
       "sha256": "5a947c18c0bc4dded9ad535d31226c00342e2465d14e47fd15d8e83ff9e44e2b"
     },
     "psalm-mock-method": {
-      "url": "https://github.com/psalm/psalm-plugin-phpunit/blob/b4534fb884c39821f332c2d95e1a036c6244f632/tests/acceptance/MockMethod.feature",
+      "url": "https://github.com/psalm/psalm-plugin-phpunit/blob/e160c6311d7b83f8e52268bc9edc2834d0536958/tests/acceptance/MockMethod.feature",
       "kind": "analyzer-test",
       "scope": "Validation of literal method names passed to MockObject::method() and Stub::method() against the mocked target",
       "sha256": "77d6b2e0cab6a1bc2c674e8e2f786d785be6182f3a88f45915a788520a20cdf1"
+    },
+    "phpunit-data-provider-api": {
+      "url": "https://github.com/sebastianbergmann/phpunit/blob/fef037fe50d20ce826cdbd741b7a2afcdec5f45b/src/Metadata/Api/DataProvider.php",
+      "kind": "runtime-contract",
+      "scope": "PHPUnit 12.5.0 DataProvider validation requiring existing, public, static provider methods",
+      "sha256": "f517921b7fdecbe8c40ff77aff1cf078986a81de39d4997e382b40884a67b474"
+    },
+    "phpunit-configurable-method": {
+      "url": "https://github.com/sebastianbergmann/phpunit/blob/fef037fe50d20ce826cdbd741b7a2afcdec5f45b/src/Framework/MockObject/ConfigurableMethod.php",
+      "kind": "runtime-contract",
+      "scope": "PHPUnit 12.5.0 ConfigurableMethod::mayReturn() checks configured return values against native declared return types",
+      "sha256": "96a53008a8cf69a2c3d52f7264632163d4acb0009dcbce9124364424744625de"
+    },
+    "phpunit-assert-json": {
+      "url": "https://github.com/sebastianbergmann/phpunit/blob/fef037fe50d20ce826cdbd741b7a2afcdec5f45b/tests/unit/Framework/Assert/assertJsonTest.php",
+      "kind": "runtime-test",
+      "scope": "PHPUnit 12.5.0 assertJson rejects empty string and requires valid non-empty JSON text",
+      "sha256": "63e643e1448913092e30a7c27aad5ea168701f538b555a43331a85a60ad652f0"
+    },
+    "phpunit-assert-starts-with": {
+      "url": "https://github.com/sebastianbergmann/phpunit/blob/fef037fe50d20ce826cdbd741b7a2afcdec5f45b/tests/unit/Framework/Assert/assertStringStartsWithTest.php",
+      "kind": "runtime-test",
+      "scope": "PHPUnit 12.5.0 assertStringStartsWith requires non-empty haystack when prefix is non-empty",
+      "sha256": "f3497b644a40348a519779a9c0abe3a0aee74c157498ea61df4d8621ea764178"
     }
   },
   "cases": [
@@ -387,6 +411,45 @@
       "priority": "P1",
       "versions": "Verified on Mago 1.60.2 / PHP 8.3 / PHPUnit 12.5.",
       "coverage": ["tests/fixtures/MockMethodCalls.php", "tests/runtime/Wave4ContractsRuntimeTest.php", "tests/run.php"],
+      "status": "covered"
+    },
+    {
+      "id": "PHPUNIT-D010",
+      "title": "DataProvider and DataProviderExternal attributes validate method existence, public visibility, static modifier, and syntax",
+      "sources": ["phpunit-data-provider-api", "phpunit-providers"],
+      "fixture": "<?php use PHPUnit\\Framework\\Attributes\\DataProvider; use PHPUnit\\Framework\\TestCase; final class T extends TestCase { #[DataProvider('missingRows')] public function testIt(string $v): void {} }",
+      "semantics": "PHPUnit requires #[DataProvider] and #[DataProviderExternal] targets to exist as public static methods and rejects Class::method strings inside #[DataProvider]. Abstract test base classes may declare #[DataProvider] for methods implemented by concrete subclasses.",
+      "analyzer_expectation": "Report phpunit-data-provider when #[DataProvider] uses Class::method syntax, when a referenced class or method does not exist (skipping missing local methods on abstract TestCase classes), or when the target method is non-public or non-static.",
+      "negative_control": "Valid local, inherited, abstract-subclass, and external providers report zero diagnostics; missing, private, protected, non-static, Class::method, and missing external class/method cases report 9 diagnostics; disabling extensions removes all 9.",
+      "priority": "P1",
+      "versions": "Verified on Mago 1.60.2 / PHP 8.3 against PHPUnit 10.5 and 12.5.",
+      "coverage": ["tests/fixtures/DataProviderDeclarations.php", "tests/run.php"],
+      "status": "covered"
+    },
+    {
+      "id": "PHPUNIT-M003",
+      "title": "MockBuilder onlyMethods()/addMethods() and willReturn()/willReturnOnConsecutiveCalls() validate method and return-type contracts",
+      "sources": ["phpunit-configurable-method", "psalm-mock-method"],
+      "fixture": "<?php use PHPUnit\\Framework\\TestCase; interface Gate { public function charge(): string; } final class T extends TestCase { public function testIt(): void { $this->createStub(Gate::class)->method('charge')->willReturn(123); } }",
+      "semantics": "MockBuilder::onlyMethods() throws CannotUseOnlyMethodsException for nonexistent methods (and addMethods() on PHPUnit 10/11 rejects existing methods). InvocationStubber/InvocationMocker willReturn() and willReturnOnConsecutiveCalls() throw IncompatibleReturnValueException when configured values contradict the method's native declared return type (including void/never).",
+      "analyzer_expectation": "Report phpunit-unknown-mocked-method for missing methods in onlyMethods(), phpunit-invalid-mock-builder-method for existing methods in addMethods(), and phpunit-incompatible-mock-return for values disjoint from the native declared return type (or any willReturn on void/never) while staying conservative on mixed, untyped, __call, and partially overlapping unions.",
+      "negative_control": "Valid onlyMethods(), compatible return values, nullable unions, subclasses, untyped, and mixed methods report zero issues; 1 undefined onlyMethods() entry and 6 incompatible willReturn/willReturnOnConsecutiveCalls calls report; runtime tests confirm PHPUnit throws CannotUseOnlyMethodsException and IncompatibleReturnValueException.",
+      "priority": "P1",
+      "versions": "Verified on Mago 1.60.2 / PHP 8.3 against PHPUnit 10.5 and 12.5.",
+      "coverage": ["tests/fixtures/MockExpectationContracts.php", "tests/runtime/Wave5ContractsRuntimeTest.php", "tests/run.php"],
+      "status": "covered"
+    },
+    {
+      "id": "PHPUNIT-A012",
+      "title": "assertStringStartsWith, assertStringEndsWith, assertJson, and integer bound assertions narrow target types",
+      "sources": ["phpunit-assert-json", "phpunit-assert-starts-with", "phpunit-assertions"],
+      "fixture": "<?php use PHPUnit\\Framework\\Assert; /** @return positive-int */ function check(int $n): int { Assert::assertGreaterThan(0, $n); return $n; }",
+      "semantics": "A string starting or ending with a non-empty affix or containing valid JSON cannot be empty. Comparing a pure int against a literal int bound via assertGreaterThan/GreaterThanOrEqual/LessThan/LessThanOrEqual narrows its integer range without altering float or mixed targets. assertObjectHasProperty has no PropertyExists assertion in Mago 1.60.2 SDK.",
+      "analyzer_expectation": "Emit non-empty-string assertions for assertStringStartsWith/assertStringEndsWith (non-empty affix) and assertJson, and IntegerAssertion bounds for pure-int targets on both method and function forms.",
+      "negative_control": "Float targets stay float; dynamic prefixes, non-literal bounds, and insufficient bounds (> -1 for positive-int) retain 3 invalid-return-statement diagnostics; disabling extensions restores 15 invalid-return-statement diagnostics; runtime tests confirm empty strings fail affix and JSON assertions.",
+      "priority": "P1",
+      "versions": "Verified on Mago 1.60.2 / PHP 8.3 against PHPUnit 10.5 and 12.5.",
+      "coverage": ["tests/fixtures/Wave5Assertions.php", "tests/runtime/Wave5ContractsRuntimeTest.php", "tests/run.php"],
       "status": "covered"
     }
   ]

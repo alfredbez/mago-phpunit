@@ -49,6 +49,7 @@ final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
         'phpunit\\framework\\mockobject\\stub' => true,
         'phpunit\\framework\\mockobject\\rule\\invocationorder' => true,
         'phpunit\\framework\\mockobject\\builder\\invocationmocker' => true,
+        'phpunit\\framework\\mockobject\\builder\\invocationstubber' => true,
         'phpunit\\framework\\mockobject\\invocationstubber' => true,
     ];
 
@@ -60,6 +61,8 @@ final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
             MethodTarget::exact('PHPUnit\\Framework\\MockObject\\MockBuilder', 'addMethods'),
             MethodTarget::exact('PHPUnit\\Framework\\MockObject\\InvocationStubber', 'willReturn'),
             MethodTarget::exact('PHPUnit\\Framework\\MockObject\\InvocationStubber', 'willReturnOnConsecutiveCalls'),
+            MethodTarget::exact('PHPUnit\\Framework\\MockObject\\Builder\\InvocationStubber', 'willReturn'),
+            MethodTarget::exact('PHPUnit\\Framework\\MockObject\\Builder\\InvocationStubber', 'willReturnOnConsecutiveCalls'),
             MethodTarget::exact('PHPUnit\\Framework\\MockObject\\Builder\\InvocationMocker', 'willReturn'),
             MethodTarget::exact('PHPUnit\\Framework\\MockObject\\Builder\\InvocationMocker', 'willReturnOnConsecutiveCalls'),
         ];

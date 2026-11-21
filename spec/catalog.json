@@ -102,11 +102,11 @@
       "fixture": "<?php use PHPUnit\\Framework\\Assert; $a = new ArrayObject(['k' => 'v']); Assert::assertArrayHasKey('k', $a); Assert::assertInstanceOf(ArrayObject::class, $a);",
       "semantics": "ArrayAccess is accepted, but the assertion must not turn the object into an array. User-defined offsetExists need not prove offsetGet is non-null.",
       "analyzer_expectation": "Keep object identity and do not infer an array shape on ArrayAccess.",
-      "negative_control": "A missing offset fails; retain methods of the ArrayAccess implementation after assertion.",
+      "negative_control": "Returning ArrayObject or ArrayAccess as array after method or function assertArrayHasKey still fails. Calling a missing method still reports non-existent-method, and nullable offsetGet stays nullable. Missing offset fails at runtime.",
       "priority": "P1",
-      "versions": "ArrayObject runtime checked on 11.5.0 and 12.5.0. Arbitrary ArrayAccess side effects remain untested.",
-      "coverage": [],
-      "status": "runtime-verified"
+      "versions": "Analyzer and runtime conformance verified on Mago 1.60.2 / PHP 8.3 / PHPUnit 12.5.40 across method and function forms.",
+      "coverage": ["tests/fixtures/HasKeyArrayAccess.php", "tests/runtime/RuntimeContractTest.php", "tests/run.php"],
+      "status": "covered"
     },
     {
       "id": "PHPUNIT-A006",
@@ -115,11 +115,11 @@
       "fixture": "<?php use PHPUnit\\Framework\\Assert; Assert::assertEquals(7, '7'); Assert::assertSame(7, '7');",
       "semantics": "The equality assertion passes; the identity assertion fails because the types differ.",
       "analyzer_expectation": "Do not narrow an actual string to integer merely because assertEquals used an integer expected value.",
-      "negative_control": "The assertSame call must fail at runtime, while assertEquals passes.",
+      "negative_control": "Returning string, int|string, int|bool, or ?string as the expected literal type after this/self/static/Assert/function assertEquals retains invalid-return diagnostics, while assertSame narrows int|string to int. assertSame fails at runtime where assertEquals passes.",
       "priority": "P1",
-      "versions": "Runtime checked on 11.5.0 and 12.5.0. Native assertSame coverage exists but does not establish assertEquals conformance.",
-      "coverage": ["tests/fixtures/NativeAssertions.php"],
-      "status": "runtime-verified"
+      "versions": "Analyzer and runtime conformance verified on Mago 1.60.2 / PHP 8.3 / PHPUnit 12.5.40.",
+      "coverage": ["tests/fixtures/AssertEqualsNoNarrowing.php", "tests/fixtures/NativeAssertions.php", "tests/runtime/RuntimeContractTest.php", "tests/run.php"],
+      "status": "covered"
     },
     {
       "id": "PHPUNIT-D001",
@@ -141,11 +141,11 @@
       "fixture": "<?php use PHPUnit\\Framework\\TestCase; use PHPUnit\\Framework\\Attributes\\DataProvider; final class OrderTest extends TestCase { private static bool $ready = false; public static function setUpBeforeClass(): void { self::$ready = true; } public static function rows(): array { return [[self::$ready]]; } #[DataProvider('rows')] public function testOrder(bool $ready): void { self::assertFalse($ready); } }",
       "semantics": "Providers run before setUpBeforeClass and before the first setUp. Initialization knowledge cannot flow backwards into providers.",
       "analyzer_expectation": "Do not assume test lifecycle initialization in data provider bodies.",
-      "negative_control": "Change the expectation to assertTrue; the runtime test must fail.",
+      "negative_control": "A nullable static property assigned in setUpBeforeClass stays nullable inside the provider and reports a provider type mismatch for a non-null parameter; an uninitialized instance property still reports uninitialized-property. Runtime test proves provider executes strictly before setUpBeforeClass and setUp.",
       "priority": "P1",
-      "versions": "Documented for PHPUnit 12.5. Runtime and Mago checks pending.",
-      "coverage": [],
-      "status": "candidate"
+      "versions": "Analyzer and runtime conformance verified on Mago 1.60.2 / PHP 8.3 / PHPUnit 12.5.40.",
+      "coverage": ["tests/fixtures/DataProviderLifecycleOrder.php", "tests/runtime/ProviderLifecycleOrderTest.php", "tests/run.php"],
+      "status": "covered"
     },
     {
       "id": "PHPUNIT-D003",

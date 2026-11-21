@@ -157,6 +157,27 @@ $expected[true]['tests/fixtures/ContainsOnly.php'] = $phpunitMajor >= 11
         'mixed-method-access' => 6,
         'mixed-return-statement' => 6,
     ];
+$hasKeyArrayAccess = [
+    'invalid-return-statement' => 3,
+    'non-existent-method' => 1,
+    'nullable-return-statement' => 1,
+];
+$expected[false]['tests/fixtures/HasKeyArrayAccess.php'] = $hasKeyArrayAccess;
+$expected[true]['tests/fixtures/HasKeyArrayAccess.php'] = $hasKeyArrayAccess;
+$assertEqualsNoNarrowing = [
+    'invalid-return-statement' => 5,
+    'nullable-return-statement' => 1,
+];
+$expected[false]['tests/fixtures/AssertEqualsNoNarrowing.php'] = $assertEqualsNoNarrowing;
+$expected[true]['tests/fixtures/AssertEqualsNoNarrowing.php'] = $assertEqualsNoNarrowing;
+$expected[false]['tests/fixtures/DataProviderLifecycleOrder.php'] = [
+    'alfredbez/phpunit/phpunit-data-provider' => 1,
+    'uninitialized-property' => 1,
+];
+$expected[true]['tests/fixtures/DataProviderLifecycleOrder.php'] = [
+    'alfredbez/phpunit/phpunit-data-provider' => 0,
+    'uninitialized-property' => 1,
+];
 // PHPUnit 10.5 declares @psalm-assert on assertInstanceOf(), assertNull(), and assertSame(),
 // and PHPUnit 11.5 and later declare @phpstan-assert. Mago narrows all three without an extension.
 $nativeAssertions = [
@@ -335,6 +356,54 @@ foreach ([false => $with, true => $without] as $disabled => $issues) {
     $failures += assertMessageCount(
         $label,
         $issues,
+        'tests/fixtures/HasKeyArrayAccess.php',
+        'invalid-return-statement',
+        'testArrayObjectDoesNotBecomeArray',
+        1,
+    );
+    $failures += assertMessageCount(
+        $label,
+        $issues,
+        'tests/fixtures/HasKeyArrayAccess.php',
+        'invalid-return-statement',
+        'testArrayAccessFunctionDoesNotBecomeArray',
+        1,
+    );
+    $failures += assertMessageCount(
+        $label,
+        $issues,
+        'tests/fixtures/HasKeyArrayAccess.php',
+        'non-existent-method',
+        'nonExistentMethod',
+        1,
+    );
+    $failures += assertMessageCount(
+        $label,
+        $issues,
+        'tests/fixtures/HasKeyArrayAccess.php',
+        'nullable-return-statement',
+        'testCustomArrayAccessValueRemainsNullable',
+        1,
+    );
+    foreach ([
+        'testEqualsThisDoesNotNarrowStringToInt',
+        'testEqualsSelfDoesNotNarrowUnion',
+        'testEqualsStaticDoesNotNarrowBoolUnion',
+        'testEqualsAssertClassDoesNotNarrowToNull',
+        'testEqualsFunctionDoesNotNarrowStringToInt',
+    ] as $method) {
+        $failures += assertMessageCount(
+            $label,
+            $issues,
+            'tests/fixtures/AssertEqualsNoNarrowing.php',
+            'invalid-return-statement',
+            $method,
+            1,
+        );
+    }
+    $failures += assertMessageCount(
+        $label,
+        $issues,
         'tests/fixtures/NativeAssertions.php',
         'less-specific-return-statement',
         'testInstanceOfNonLiteral',
@@ -424,6 +493,14 @@ foreach ([
 ] as $needle => $count) {
     $failures += assertMessageCount('with extension', $with, $dataProviderFile, $dataProvider, $needle, $count);
 }
+$failures += assertMessageCount(
+    'with extension',
+    $with,
+    'tests/fixtures/DataProviderLifecycleOrder.php',
+    $dataProvider,
+    'sharedRows() row #0 provides null|string for $value of testSetUpBeforeClassDoesNotNarrowProviderValue(), which expects string.',
+    1,
+);
 $dataProviderDependsFile = 'tests/fixtures/DataProviderDepends.php';
 foreach ([
     'for testValid()' => 0,

@@ -6,6 +6,7 @@ use PHPUnit\Framework\AssertionFailedError;
 use PHPUnit\Framework\TestCase;
 
 use function PHPUnit\Framework\assertArrayHasKey;
+use function PHPUnit\Framework\assertEquals;
 
 final class RuntimeContractTest extends TestCase
 {
@@ -51,9 +52,12 @@ final class RuntimeContractTest extends TestCase
 
     public function testPHPUNITA005ArrayAccessIsNotAnArray(): void
     {
-        $values = new ArrayObject(['token' => 'value']);
+        $values = new ArrayObject(['token' => 'value', 'empty' => null]);
         self::assertArrayHasKey('token', $values);
+        assertArrayHasKey('empty', $values);
         self::assertInstanceOf(ArrayObject::class, $values);
+        self::assertSame(2, $values->count());
+        self::assertNull($values->offsetGet('empty'));
         $this->expectException(AssertionFailedError::class);
         self::assertArrayHasKey('missing', $values);
     }
@@ -61,7 +65,16 @@ final class RuntimeContractTest extends TestCase
     public function testPHPUNITA006EqualityIsNotIdentity(): void
     {
         self::assertEquals(7, '7');
+        assertEquals(7, '7');
+        self::assertEquals(null, '');
         $this->expectException(AssertionFailedError::class);
         self::assertSame(7, '7');
+    }
+
+    public function testPHPUNITA006NullEqualsEmptyStringFailsIdentity(): void
+    {
+        self::assertEquals(null, '');
+        $this->expectException(AssertionFailedError::class);
+        self::assertSame(null, '');
     }
 }

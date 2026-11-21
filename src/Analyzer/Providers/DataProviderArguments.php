@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AlfredBez\MagoPhpunit\Analyzer\Providers;
 
+use AlfredBez\MagoPhpunit\Analyzer\PhpUnitVersion;
 use Mago\Sdk\Analyzer\ClassLikeAnalysisHook;
 use Mago\Sdk\Analyzer\ClassLikeTarget;
 use Mago\Sdk\Analyzer\FileAnalysisRequirement;
@@ -43,9 +44,6 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
     private const DATA_PROVIDER_EXTERNAL = 'phpunit\\framework\\attributes\\dataproviderexternal';
 
     private const TEST_CASE = 'phpunit\\framework\\testcase';
-
-    /** PHPUnit 12 removed doc-comment metadata, so `@dataProvider` is only read where this class exists. */
-    private const ANNOTATION_PARSER = 'PHPUnit\\Metadata\\Parser\\AnnotationParser';
 
     /** @var WeakMap<SourceFile, array<string, array<string, Node>>> */
     private WeakMap $methodsByFile;
@@ -263,7 +261,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
                 }
 
                 if ($normalized === self::DATA_PROVIDER_CLOSURE) {
-                    if (!$context->codebase->classExists(self::DATA_PROVIDER_CLOSURE)) {
+                    if (!PhpUnitVersion::supportsDataProviderClosure($context->codebase)) {
                         continue;
                     }
 
@@ -315,7 +313,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
             }
         }
 
-        if (!$context->codebase->classExists(self::ANNOTATION_PARSER)) {
+        if (!PhpUnitVersion::supportsDocblockMetadata($context->codebase)) {
             return $references;
         }
 
@@ -538,7 +536,29 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
     ): void {
         $named = $this->namedArguments($type);
         if ($named !== null) {
+            if (!PhpUnitVersion::supportsNamedProviderArguments($context->codebase)) {
+                $this->checkPositionalArguments(
+                    $context,
+                    array_values($named),
+                    $span,
+                    $label,
+                    $test,
+                    $provider,
+                    $schema,
+                    $validateCount,
+                );
+
+                return;
+            }
+
             if ($schema['dependencies'] > 0) {
+                $this->report($context, $span, sprintf(
+                    'Data provider %s() row %s uses named arguments with dependencies for %s(), which fails when PHP unpacks positional dependency results after named arguments.',
+                    $provider,
+                    $label,
+                    $test,
+                ));
+
                 return;
             }
 
@@ -552,9 +572,11 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
 
             $known = $schema['names'];
             $unknown = [];
-            foreach ($names as $name) {
-                if (!in_array($name, $known, true)) {
-                    $unknown[] = '$' . $name;
+            if (!$schema['variadic']) {
+                foreach ($names as $name) {
+                    if (!in_array($name, $known, true)) {
+                        $unknown[] = '$' . $name;
+                    }
                 }
             }
 
@@ -578,7 +600,15 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
             }
 
             foreach ($named as $name => $argumentType) {
-                $parameterType = $schema['named'][$name] ?? null;
+                if (array_key_exists($name, $schema['named'])) {
+                    $parameterName = $name;
+                    $parameterType = $schema['named'][$name];
+                } elseif ($schema['variadicParameter'] !== null) {
+                    $parameterName = $schema['variadicParameter']['name'];
+                    $parameterType = $schema['variadicParameter']['type'];
+                } else {
+                    continue;
+                }
                 if ($parameterType === null) {
                     continue;
                 }
@@ -589,7 +619,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
                     $label,
                     $test,
                     $provider,
-                    $name,
+                    $parameterName,
                     $parameterType,
                     $argumentType,
                 );
@@ -613,6 +643,33 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
             return;
         }
 
+        $this->checkPositionalArguments($context, $arguments, $span, $label, $test, $provider, $schema, $validateCount);
+    }
+
+    /**
+     * @param list<Type> $arguments
+     * @param array{
+     *     required: int,
+     *     accepted: int,
+     *     variadic: bool,
+     *     names: list<string>,
+     *     requiredNames: list<string>,
+     *     positional: list<array{name: string, type: ?Type}>,
+     *     named: array<string, ?Type>,
+     *     variadicParameter: ?array{name: string, type: ?Type},
+     *     dependencies: int,
+     * } $schema
+     */
+    private function checkPositionalArguments(
+        NodeAnalysisContext $context,
+        array $arguments,
+        Span $span,
+        string $label,
+        string $test,
+        string $provider,
+        array $schema,
+        bool $validateCount,
+    ): void {
         $count = count($arguments);
         if ($count < $schema['required']) {
             $this->report($context, $span, sprintf(

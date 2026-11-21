@@ -197,6 +197,8 @@ $expected[false]['tests/fixtures/NativeMocks.php'] = $nativeMocks;
 $expected[true]['tests/fixtures/NativeMocks.php'] = $nativeMocks;
 // PHPUnit 12 removed doc-comment metadata, so the @dataProvider fixture is only checked before 12.
 $annotationsSupported = $phpunitMajor < 12;
+// PHPUnit 11 introduced named argument unpacking for data provider rows; 10.5 strips keys with array_values().
+$namedProviderArgs = $phpunitMajor >= 11;
 $dataProviderIssues = ['alfredbez/phpunit/phpunit-data-provider' => $annotationsSupported ? 14 : 13];
 // Up to PHPUnit 11.5 the DataProvider attribute takes only the method name. The
 // validateArgumentCount argument is a PHPUnit 12 addition, so earlier versions report it.
@@ -214,13 +216,19 @@ $expected[true]['tests/fixtures/DataProviderDepends.php'] = [
     'alfredbez/phpunit/phpunit-data-provider' => 0,
 ];
 $expected[false]['tests/fixtures/DataProviderDependsNamed.php'] = [
-    'alfredbez/phpunit/phpunit-data-provider' => 1,
+    'alfredbez/phpunit/phpunit-data-provider' => $namedProviderArgs ? 4 : 2,
 ];
 $expected[true]['tests/fixtures/DataProviderDependsNamed.php'] = [
     'alfredbez/phpunit/phpunit-data-provider' => 0,
 ];
+$expected[false]['tests/fixtures/DataProviderVariadicNamed.php'] = [
+    'alfredbez/phpunit/phpunit-data-provider' => $namedProviderArgs ? 3 : 5,
+];
+$expected[true]['tests/fixtures/DataProviderVariadicNamed.php'] = [
+    'alfredbez/phpunit/phpunit-data-provider' => 0,
+];
 $expected[false]['tests/fixtures/DataProviderTypes.php'] = [
-    'alfredbez/phpunit/phpunit-data-provider' => 6,
+    'alfredbez/phpunit/phpunit-data-provider' => $namedProviderArgs ? 6 : 12,
 ];
 $expected[true]['tests/fixtures/DataProviderTypes.php'] = [
     'alfredbez/phpunit/phpunit-data-provider' => 0,
@@ -470,10 +478,10 @@ foreach ([false => $with, true => $without] as $disabled => $issues) {
 $dataProvider = 'alfredbez/phpunit/phpunit-data-provider';
 $dataProviderFile = 'tests/fixtures/DataProvider.php';
 foreach ([
-    'which requires 2.' => 7,
-    'which accepts ' => $annotationsSupported ? 4 : 3,
-    'does not provide $label' => 1,
-    'unknown argument $extra' => 1,
+    'which requires 2.' => $namedProviderArgs ? 7 : 8,
+    'which accepts ' => ($annotationsSupported ? 4 : 3) + ($namedProviderArgs ? 0 : 1),
+    'does not provide $label' => $namedProviderArgs ? 1 : 0,
+    'unknown argument $extra' => $namedProviderArgs ? 1 : 0,
     'expects an argument list' => 1,
     'for testTooManyAllowed()' => 0,
     'builtRows()' => 0,
@@ -511,33 +519,83 @@ foreach ([
     $failures += assertMessageCount('with extension', $with, $dataProviderDependsFile, $dataProvider, $needle, $count);
 }
 $dataProviderDependsNamedFile = 'tests/fixtures/DataProviderDependsNamed.php';
-foreach ([
-    'for testNamed()' => 0,
-    'for testUnknown()' => 0,
-    'for testReordered()' => 0,
-    'does not provide $missing for testWithoutDependency()' => 1,
-] as $needle => $count) {
+foreach (
+    $namedProviderArgs
+        ? [
+            'namedRows() row #0 uses named arguments with dependencies for testNamed()' => 1,
+            'unknownRows() row #0 uses named arguments with dependencies for testUnknown()' => 1,
+            'wrongTypeRows() row #0 uses named arguments with dependencies for testReordered()' => 1,
+            'does not provide $missing for testWithoutDependency()' => 1,
+        ]
+        : [
+            'for testNamed()' => 0,
+            'for testUnknown()' => 0,
+            'wrongTypeRows() row #0 provides string for $row of testReordered(), which expects int.' => 1,
+            'namedRows() row #0 provides 1 argument for testWithoutDependency(), which requires 2.' => 1,
+        ]
+    as $needle => $count
+) {
     $failures += assertMessageCount('with extension', $with, $dataProviderDependsNamedFile, $dataProvider, $needle, $count);
 }
+$dataProviderVariadicNamedFile = 'tests/fixtures/DataProviderVariadicNamed.php';
+foreach (
+    $namedProviderArgs
+        ? [
+            'for testValidNamedVariadic()' => 0,
+            'for testReorderedNamedVariadic()' => 0,
+            'wrongTypeVariadicRows() row #0 provides int for $rest of testWrongTypeNamedVariadic(), which expects string.' => 1,
+            'wrongTypeVariadicRows() row #1 provides int for $rest of testWrongTypeNamedVariadic(), which expects string.' => 1,
+            'missingRequiredVariadicRows() row #0 does not provide $n for testMissingRequiredNamedVariadic().' => 1,
+        ]
+        : [
+            'for testValidNamedVariadic()' => 0,
+            'reorderedNamedVariadicRows() row #0 provides string for $n of testReorderedNamedVariadic(), which expects int.' => 1,
+            'reorderedNamedVariadicRows() row #0 provides int for $rest of testReorderedNamedVariadic(), which expects string.' => 1,
+            'wrongTypeVariadicRows() row #0 provides int for $rest of testWrongTypeNamedVariadic(), which expects string.' => 1,
+            'wrongTypeVariadicRows() row #1 provides int for $rest of testWrongTypeNamedVariadic(), which expects string.' => 1,
+            'missingRequiredVariadicRows() row #0 provides string for $n of testMissingRequiredNamedVariadic(), which expects int.' => 1,
+        ]
+    as $needle => $count
+) {
+    $failures += assertMessageCount('with extension', $with, $dataProviderVariadicNamedFile, $dataProvider, $needle, $count);
+}
 $dataProviderTypesFile = 'tests/fixtures/DataProviderTypes.php';
-foreach ([
-    'stringForInt() row #0 provides string for $n of testStringForInt(), which expects int.' => 1,
-    'stringForInt() row "swapped" provides string for $n of testStringForInt(), which expects int.' => 1,
-    'stringForInt() row "swapped" provides int for $label of testStringForInt(), which expects string.' => 1,
-    'yieldedStringForInt() row #1 provides string for $n of testYieldedStringForInt(), which expects int.' => 1,
-    'namedWrongType() row #0 provides float for $n of testNamedWrongType(), which expects int.' => 1,
-    'variadicWrongType() row #0 provides int for $rest of testVariadicWrongType(), which expects string.' => 1,
-    'compatibleRows()' => 0,
-    'looseRows()' => 0,
-    'nonLiteralRows()' => 0,
-] as $needle => $count) {
+foreach (
+    $namedProviderArgs
+        ? [
+            'stringForInt() row #0 provides string for $n of testStringForInt(), which expects int.' => 1,
+            'stringForInt() row "swapped" provides string for $n of testStringForInt(), which expects int.' => 1,
+            'stringForInt() row "swapped" provides int for $label of testStringForInt(), which expects string.' => 1,
+            'yieldedStringForInt() row #1 provides string for $n of testYieldedStringForInt(), which expects int.' => 1,
+            'namedWrongType() row #0 provides float for $n of testNamedWrongType(), which expects int.' => 1,
+            'variadicWrongType() row #0 provides int for $rest of testVariadicWrongType(), which expects string.' => 1,
+            'compatibleRows()' => 0,
+            'looseRows()' => 0,
+            'nonLiteralRows()' => 0,
+        ]
+        : [
+            'stringForInt() row #0 provides string for $n of testStringForInt(), which expects int.' => 1,
+            'stringForInt() row "swapped" provides string for $n of testStringForInt(), which expects int.' => 1,
+            'stringForInt() row "swapped" provides int for $label of testStringForInt(), which expects string.' => 1,
+            'yieldedStringForInt() row #1 provides string for $n of testYieldedStringForInt(), which expects int.' => 1,
+            'namedWrongType() row #0 provides string for $n of testNamedWrongType(), which expects int.' => 1,
+            'namedWrongType() row #0 provides float for $label of testNamedWrongType(), which expects string.' => 1,
+            'variadicWrongType() row #0 provides int for $rest of testVariadicWrongType(), which expects string.' => 1,
+            'compatibleRows() row "named"' => 5,
+            'looseRows()' => 0,
+            'nonLiteralRows()' => 0,
+        ]
+    as $needle => $count
+) {
     $failures += assertMessageCount('with extension', $with, $dataProviderTypesFile, $dataProvider, $needle, $count);
 }
 $dataProviderYieldFromFile = 'tests/fixtures/DataProviderYieldFrom.php';
 foreach ([
     'wrongCountRows() row #1 provides 1 argument for testWrongCount(), which requires 2.' => 1,
     'wrongCountRows() row "tooMany" provides 3 arguments for testWrongCount(), which accepts 2.' => 1,
-    'namedRows() row "second" provides unknown argument $extra for testNamed().' => 1,
+    ($namedProviderArgs
+        ? 'namedRows() row "second" provides unknown argument $extra for testNamed().'
+        : 'namedRows() row "second" provides 3 arguments for testNamed(), which accepts 2.') => 1,
     'wrongTypeRows() row #1 provides string for $n of testWrongType(), which expects int.' => 1,
     'mixedRows() row #0 provides 1 argument for testMixed(), which requires 2.' => 1,
     'mixedRows() row "fromKey" provides int for $label of testMixed(), which expects string.' => 1,

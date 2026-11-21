@@ -157,6 +157,49 @@ $expected[true]['tests/fixtures/ContainsOnly.php'] = $phpunitMajor >= 11
         'mixed-method-access' => 6,
         'mixed-return-statement' => 6,
     ];
+$expected[false]['tests/fixtures/AssertionsParity.php'] = [
+    'undefined-string-array-index' => 2,
+    'possibly-undefined-string-array-index' => 2,
+    'invalid-return-statement' => 4,
+];
+$expected[true]['tests/fixtures/AssertionsParity.php'] = [
+    'possibly-undefined-string-array-index' => 4,
+    'invalid-return-statement' => 13,
+    'nullable-return-statement' => 1,
+];
+if ($phpunitMajor >= 13) {
+    $containsOnlyRemoved = [
+        'non-existent-method' => 3,
+        'non-existent-function' => 1,
+        'mixed-assignment' => 4,
+        'mixed-method-access' => 1,
+        'mixed-return-statement' => 4,
+    ];
+    $expected[false]['tests/fixtures/AssertContainsOnly.php'] = $containsOnlyRemoved;
+    $expected[true]['tests/fixtures/AssertContainsOnly.php'] = $containsOnlyRemoved;
+} else {
+    $containsOnlyWith = [
+        'mixed-assignment' => 1,
+        'mixed-return-statement' => 1,
+    ];
+    $containsOnlyWithout = [
+        'mixed-assignment' => 4,
+        'mixed-method-access' => 1,
+        'mixed-return-statement' => 4,
+    ];
+    if ($phpunitMajor >= 12) {
+        $containsOnlyWith['deprecated-method'] = 3;
+        $containsOnlyWith['deprecated-function'] = 1;
+        $containsOnlyWith['invalid-argument'] = 1;
+        $containsOnlyWith['possibly-invalid-argument'] = 1;
+        $containsOnlyWithout['deprecated-method'] = 3;
+        $containsOnlyWithout['deprecated-function'] = 1;
+        $containsOnlyWithout['invalid-argument'] = 1;
+        $containsOnlyWithout['possibly-invalid-argument'] = 1;
+    }
+    $expected[false]['tests/fixtures/AssertContainsOnly.php'] = $containsOnlyWith;
+    $expected[true]['tests/fixtures/AssertContainsOnly.php'] = $containsOnlyWithout;
+}
 $hasKeyArrayAccess = [
     'invalid-return-statement' => 3,
     'non-existent-method' => 1,
@@ -287,6 +330,54 @@ foreach ([false => 'with extension', true => '--no-extensions'] as $disabled => 
     }
 }
 
+$failures += assertMessageCount(
+    'with extension',
+    $with,
+    'tests/fixtures/AssertionsParity.php',
+    'undefined-string-array-index',
+    "key 'k'",
+    2,
+);
+$failures += assertMessageCount(
+    '--no-extensions',
+    $without,
+    'tests/fixtures/AssertionsParity.php',
+    'undefined-string-array-index',
+    "key 'k'",
+    0,
+);
+$failures += assertMessageCount(
+    'with extension',
+    $with,
+    'tests/fixtures/AssertionsParity.php',
+    'invalid-return-statement',
+    'testCountZeroDoesNotNarrowNonEmpty',
+    1,
+);
+$failures += assertMessageCount(
+    'with extension',
+    $with,
+    'tests/fixtures/AssertionsParity.php',
+    'invalid-return-statement',
+    'testCountNonLiteralDoesNotNarrowNonEmpty',
+    1,
+);
+$failures += assertMessageCount(
+    'with extension',
+    $with,
+    'tests/fixtures/AssertionsParity.php',
+    'invalid-return-statement',
+    'testStringContainsEmptyNeedleDoesNotNarrow',
+    1,
+);
+$failures += assertMessageCount(
+    'with extension',
+    $with,
+    'tests/fixtures/AssertionsParity.php',
+    'invalid-return-statement',
+    'testStringContainsDynamicNeedleDoesNotNarrow',
+    1,
+);
 $failures += assertMessageCount(
     'with extension',
     $with,

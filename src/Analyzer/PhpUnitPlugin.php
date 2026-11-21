@@ -8,6 +8,8 @@ use AlfredBez\MagoPhpunit\Analyzer\Providers\AssertArrayHasKeyAssertion;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\AssertArrayHasKeyFunctionAssertion;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\ContainsOnlyInstancesAssertion;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\DataProviderArguments;
+use AlfredBez\MagoPhpunit\Analyzer\Providers\PhpUnitFunctionAssertions;
+use AlfredBez\MagoPhpunit\Analyzer\Providers\PhpUnitMethodAssertions;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\SetUpInitializer;
 use Mago\Sdk\Analyzer\Plugin;
 use Mago\Sdk\Analyzer\PluginDefinition;
@@ -30,6 +32,8 @@ final class PhpUnitPlugin implements Plugin
         $registry->enableProviderMemoization();
         $registry->registerMethodAssertionProvider(new AssertArrayHasKeyAssertion());
         $registry->registerFunctionAssertionProvider(new AssertArrayHasKeyFunctionAssertion());
+        $registry->registerMethodAssertionProvider(new PhpUnitMethodAssertions());
+        $registry->registerFunctionAssertionProvider(new PhpUnitFunctionAssertions());
         $registry->registerMethodAssertionProvider(new ContainsOnlyInstancesAssertion());
         $registry->registerClassInitializerProvider(new SetUpInitializer());
         $registry->registerClassLikeAnalysisHook(new DataProviderArguments());

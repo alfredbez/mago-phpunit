@@ -51,6 +51,10 @@ $expected = [
             'invalid-return-statement' => 1,
             'named-argument-not-allowed' => 2,
         ],
+        'tests/fixtures/HasKeyNumeric.php' => [
+            'possibly-undefined-int-array-index' => 2,
+            'possibly-undefined-string-array-index' => 1,
+        ],
         'tests/fixtures/SetUpPositive.php' => [
             'uninitialized-property' => 0,
         ],
@@ -86,6 +90,12 @@ $expected = [
             'nullable-return-statement' => 1,
             'invalid-return-statement' => 1,
             'named-argument-not-allowed' => 2,
+        ],
+        'tests/fixtures/HasKeyNumeric.php' => [
+            'possibly-undefined-int-array-index' => 6,
+            'possibly-undefined-string-array-index' => 2,
+            'nullable-return-statement' => 5,
+            'invalid-return-statement' => 5,
         ],
         'tests/fixtures/SetUpPositive.php' => [
             'uninitialized-property' => 1,

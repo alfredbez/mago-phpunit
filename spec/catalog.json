@@ -89,11 +89,11 @@
       "fixture": "<?php use PHPUnit\\Framework\\Assert; Assert::assertArrayHasKey('7', [7 => 'value']); Assert::assertArrayHasKey(7, ['7' => 'value']);",
       "semantics": "PHP array key conversion makes '7' and 7 equivalent. '07' remains a distinct string key.",
       "analyzer_expectation": "Preserve PHP key normalization, without treating every numeric-looking string as an integer.",
-      "negative_control": "assertArrayHasKey('07', [7 => 'value']) must fail.",
+      "negative_control": "Asserting '07' leaves optional integer 7 uncertain, and asserting 7 leaves optional '07' uncertain. Both mismatches fail at runtime. Removing assertions restores five nullable and invalid returns plus six integer and two string offset warnings.",
       "priority": "P1",
-      "versions": "Runtime checked on 11.5.0 and 12.5.0; no claim about all PHP numeric string edge cases.",
-      "coverage": [],
-      "status": "runtime-verified"
+      "versions": "Mago 1.60.2 / PHP 8.4 / PHPUnit 12.5.40 method and function conformance checked. The existing provider and Mago already normalize these keys. No claim about all PHP numeric string edge cases.",
+      "coverage": ["tests/fixtures/HasKeyNumeric.php", "tests/runtime/RuntimeContractTest.php", "tests/run.php"],
+      "status": "covered"
     },
     {
       "id": "PHPUNIT-A005",

@@ -36,8 +36,17 @@ final class RuntimeContractTest extends TestCase
     {
         self::assertArrayHasKey('7', [7 => 'value']);
         self::assertArrayHasKey(7, ['7' => 'value']);
+        assertArrayHasKey('7', [7 => 'value']);
+        assertArrayHasKey(7, ['7' => 'value']);
+        self::assertArrayHasKey('07', ['07' => 'value']);
         $this->expectException(AssertionFailedError::class);
         self::assertArrayHasKey('07', [7 => 'value']);
+    }
+
+    public function testPHPUNITA004LeadingZeroDoesNotProveInteger(): void
+    {
+        $this->expectException(AssertionFailedError::class);
+        assertArrayHasKey(7, ['07' => 'value']);
     }
 
     public function testPHPUNITA005ArrayAccessIsNotAnArray(): void

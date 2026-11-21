@@ -26,6 +26,8 @@ use Mago\Sdk\Analyzer\Type\KeyedArrayType;
 use Mago\Sdk\Analyzer\Type\ListElement;
 use Mago\Sdk\Analyzer\Type\ListType;
 use Mago\Sdk\Analyzer\Type\MixedType;
+use Mago\Sdk\Analyzer\Type\ScalarType;
+use Mago\Sdk\Analyzer\Type\ScalarTypeKind;
 use Mago\Sdk\Analyzer\Type\SimpleAtomicType;
 use Mago\Sdk\Analyzer\Type\SimpleAtomicTypeKind;
 use Mago\Sdk\Reporting\Issue;
@@ -98,6 +100,11 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
 
     public function analyze(NodeAnalysisContext $context): void
     {
+        $contents = $context->source->contents;
+        if (stripos($contents, 'dataprovider') === false && stripos($contents, 'testwith') === false) {
+            return;
+        }
+
         $className = $this->testCaseName($context);
         if ($className === null) {
             return;
@@ -327,7 +334,14 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                 continue;
             }
 
-            foreach ($source->getDescendants($classNode, NodeKind::Method) as $method) {
+            foreach ($source->getChildren($classNode) as $member) {
+                $method = $member->kind === NodeKind::Method
+                    ? $member
+                    : ($member->kind === NodeKind::ClassLikeMember ? ($source->getChildren($member)[0] ?? null) : null);
+                if ($method === null || $method->kind !== NodeKind::Method) {
+                    continue;
+                }
+
                 $label = $this->methodLabel($source, $method);
                 $methods[strtolower($className)][strtolower($label)] = $method;
             }
@@ -1033,6 +1047,9 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
         if (!$this->isCheckableType($argumentType)) {
             return;
         }
+        if ($this->isFastPathContained($argumentType, $parameterType)) {
+            return;
+        }
         if ($context->types->isContainedBy($argumentType, $parameterType)) {
             return;
         }
@@ -1046,6 +1063,57 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
             $test,
             (string) $parameterType,
         ));
+    }
+
+    private function isFastPathContained(Type $argumentType, Type $parameterType): bool
+    {
+        foreach ($parameterType->atomicTypes as $expected) {
+            if ($expected instanceof MixedType) {
+                return true;
+            }
+        }
+
+        foreach ($argumentType->atomicTypes as $actual) {
+            $matched = false;
+            foreach ($parameterType->atomicTypes as $expected) {
+                if (self::isAtomicFastPathContained($actual, $expected)) {
+                    $matched = true;
+                    break;
+                }
+            }
+            if (!$matched) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static function isAtomicFastPathContained(object $actual, object $expected): bool
+    {
+        if ($actual instanceof SimpleAtomicType && $expected instanceof SimpleAtomicType) {
+            return $actual->kind === $expected->kind;
+        }
+
+        if ($actual instanceof ScalarType && $expected instanceof ScalarType) {
+            if ($expected->refinement !== null) {
+                return false;
+            }
+            if ($actual->kind === $expected->kind) {
+                return true;
+            }
+            if ($expected->kind === ScalarTypeKind::Bool && ($actual->kind === ScalarTypeKind::True || $actual->kind === ScalarTypeKind::False)) {
+                return true;
+            }
+            if ($expected->kind === ScalarTypeKind::String && $actual->kind === ScalarTypeKind::ClassLikeString) {
+                return true;
+            }
+            if ($expected->kind === ScalarTypeKind::Float && $actual->kind === ScalarTypeKind::Integer) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

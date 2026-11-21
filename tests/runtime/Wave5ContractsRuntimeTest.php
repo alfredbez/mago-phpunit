@@ -55,12 +55,13 @@ final class Wave5ContractsRuntimeTest extends TestCase
             static fn () => self::assertStringEndsWith('c', ''),
             static fn () => self::assertJson(''),
         ] as $case) {
+            $failed = false;
             try {
                 $case();
-                self::fail('Expected AssertionFailedError for empty string');
             } catch (AssertionFailedError) {
-                $this->addToAssertionCount(1);
+                $failed = true;
             }
+            self::assertTrue($failed, 'Expected AssertionFailedError for empty string');
         }
     }
 
@@ -89,5 +90,19 @@ final class Wave5ContractsRuntimeTest extends TestCase
 
         $this->expectException(IncompatibleReturnValueException::class);
         $stub->method('charge')->willReturn(123);
+    }
+
+    public function testWillReturnOnConsecutiveCallsRuntimeSemantics(): void
+    {
+        $voidStub = $this->createStub(Wave5RuntimeGateway::class);
+        $voidStub->method('reset')->willReturnOnConsecutiveCalls(null);
+        $voidStub->reset();
+
+        $stub = $this->createStub(Wave5RuntimeGateway::class);
+        $stub->method('charge')->willReturnOnConsecutiveCalls('ok', 42);
+        self::assertSame('ok', $stub->charge(1));
+
+        $this->expectException(\TypeError::class);
+        $stub->charge(2);
     }
 }

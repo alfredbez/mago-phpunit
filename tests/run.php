@@ -347,11 +347,20 @@ $expected[false]['tests/fixtures/DataProviderDeclarations.php'] = [
 $expected[true]['tests/fixtures/DataProviderDeclarations.php'] = [
     'alfredbez/phpunit/phpunit-data-provider' => 0,
 ];
+$stubClass = new ReflectionClass(\PHPUnit\Framework\MockObject\Stub::class);
+$stubMethodNoNamedArgs = $stubClass->hasMethod('method')
+    && (
+        str_contains((string) $stubClass->getDocComment(), '@no-named-arguments')
+        || str_contains((string) $stubClass->getMethod('method')->getDocComment(), '@no-named-arguments')
+    );
 $expected[false]['tests/fixtures/MockExpectationContracts.php'] = [
     'alfredbez/phpunit/phpunit-unknown-mocked-method' => 1,
-    'alfredbez/phpunit/phpunit-incompatible-mock-return' => 6,
+    'alfredbez/phpunit/phpunit-incompatible-mock-return' => 8,
+    'named-argument-not-allowed' => $stubMethodNoNamedArgs ? 1 : 0,
 ];
-$expected[true]['tests/fixtures/MockExpectationContracts.php'] = [];
+$expected[true]['tests/fixtures/MockExpectationContracts.php'] = [
+    'named-argument-not-allowed' => $stubMethodNoNamedArgs ? 1 : 0,
+];
 $startsWithNonEmptyParam = str_contains(
     (string) (new ReflectionMethod(\PHPUnit\Framework\Assert::class, 'assertStringStartsWith'))->getDocComment(),
     'non-empty-string',
@@ -923,7 +932,7 @@ $failures += assertMessageCount(
     1,
 );
 foreach ([
-    'Argument #1 of willReturn() provides `int` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::charge()`, whose declared return type is `string`.' => 1,
+    'Argument #1 of willReturn() provides `int` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::charge()`, whose declared return type is `string`.' => 3,
     'Argument #1 of willReturn() provides `null` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::charge()`, whose declared return type is `string`.' => 1,
     'Argument #1 of willReturn() provides `string` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::findCustomer()`, whose declared return type is `AlfredBez\\MagoPhpunit\\Fixtures\\BillingCustomer|null`.' => 1,
     'Method `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::reset()` has return type `void` and cannot be configured with willReturn().' => 1,

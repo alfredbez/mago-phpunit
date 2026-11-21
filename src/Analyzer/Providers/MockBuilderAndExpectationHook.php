@@ -23,6 +23,7 @@ use Mago\Sdk\Analyzer\Type\TemplateParameter;
 use Mago\Sdk\Reporting\Issue;
 use Mago\Sdk\Reporting\Level;
 use Mago\Sdk\SourceLocation;
+use Mago\Sdk\Syntax\CallExpression;
 use Mago\Sdk\Syntax\Node;
 use Mago\Sdk\Syntax\NodeKind;
 use Mago\Sdk\Syntax\SourceFile;
@@ -198,7 +199,7 @@ final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
         $targetLabel = implode('&', $targets);
         $displayCall = $called === 'willreturn' ? 'willReturn' : 'willReturnOnConsecutiveCalls';
 
-        if (self::isVoidOrNever($declaredReturn)) {
+        if (self::isNever($declaredReturn) || ($called === 'willreturn' && self::isVoid($declaredReturn))) {
             $context->report(
                 Level::Error,
                 self::INCOMPATIBLE_MOCK_RETURN,
@@ -211,33 +212,49 @@ final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
             return;
         }
 
+        if (self::isVoid($declaredReturn)) {
+            return;
+        }
+
         if (!self::isCheckableDeclaredReturn($declaredReturn)) {
             return;
         }
 
+        $call = CallExpression::fromNode($context->source, $context->node);
         $expected = self::widenFloatForPhp($declaredReturn);
         foreach ($context->argumentTypes as $index => $argType) {
-            if (!$argType instanceof Type || self::containsMixedOrTemplate($argType)) {
+            if (!$argType instanceof Type) {
                 continue;
             }
 
-            if ($context->types->isContainedBy($argType, $expected)) {
-                continue;
-            }
+            $callArg = $call->arguments[$index] ?? null;
+            $candidateTypes = $callArg !== null && $callArg->unpacked
+                ? self::extractUnpackedArgumentTypes($argType)
+                : [$argType];
 
-            if ($context->types->canBeIdentical($argType, $expected)) {
-                continue;
-            }
+            foreach ($candidateTypes as $candidateType) {
+                if (self::containsMixedOrTemplate($candidateType)) {
+                    continue;
+                }
 
-            $argNumber = $index + 1;
-            $context->report(
-                Level::Error,
-                self::INCOMPATIBLE_MOCK_RETURN,
-                Issue::at(
-                    "Argument #{$argNumber} of {$displayCall}() provides `{$argType}` for `{$targetLabel}::{$methodName}()`, whose declared return type is `{$declaredReturn}`.",
-                    new SourceLocation($context->analysis->file, $context->node->span),
-                ),
-            );
+                if ($context->types->isContainedBy($candidateType, $expected)) {
+                    continue;
+                }
+
+                if ($context->types->canBeIdentical($candidateType, $expected)) {
+                    continue;
+                }
+
+                $argNumber = $index + 1;
+                $context->report(
+                    Level::Error,
+                    self::INCOMPATIBLE_MOCK_RETURN,
+                    Issue::at(
+                        "Argument #{$argNumber} of {$displayCall}() provides `{$candidateType}` for `{$targetLabel}::{$methodName}()`, whose declared return type is `{$declaredReturn}`.",
+                        new SourceLocation($context->analysis->file, $context->node->span),
+                    ),
+                );
+            }
         }
     }
 
@@ -268,7 +285,7 @@ final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
 
             $name = strtolower($this->calledMethodName($source, $receiver) ?? '');
             if ($name === 'method' && $methodName === null) {
-                $firstArg = $this->firstPositionalArgument($source, $receiver);
+                $firstArg = $this->methodConstraintArgument($source, $receiver);
                 if ($firstArg === null) {
                     return null;
                 }
@@ -401,7 +418,41 @@ final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
         return $groups;
     }
 
-    private static function isVoidOrNever(Type $type): bool
+    /**
+     * @return list<Type>
+     */
+    private static function extractUnpackedArgumentTypes(Type $type): array
+    {
+        if (count($type->atomicTypes) !== 1) {
+            return [];
+        }
+
+        $atomic = $type->atomicTypes[0];
+        $types = [];
+        if ($atomic instanceof ListType) {
+            if ($atomic->knownElements === null) {
+                return [];
+            }
+            foreach ($atomic->knownElements as $element) {
+                if (!$element->optional) {
+                    $types[] = $element->type;
+                }
+            }
+        } elseif ($atomic instanceof KeyedArrayType) {
+            if ($atomic->knownItems === null) {
+                return [];
+            }
+            foreach ($atomic->knownItems as $item) {
+                if (!$item->optional) {
+                    $types[] = $item->type;
+                }
+            }
+        }
+
+        return $types;
+    }
+
+    private static function isVoid(Type $type): bool
     {
         if (count($type->atomicTypes) !== 1) {
             return false;
@@ -409,8 +460,18 @@ final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
 
         $atomic = $type->atomicTypes[0];
 
-        return $atomic instanceof SimpleAtomicType
-            && ($atomic->kind === SimpleAtomicTypeKind::Void || $atomic->kind === SimpleAtomicTypeKind::Never);
+        return $atomic instanceof SimpleAtomicType && $atomic->kind === SimpleAtomicTypeKind::Void;
+    }
+
+    private static function isNever(Type $type): bool
+    {
+        if (count($type->atomicTypes) !== 1) {
+            return false;
+        }
+
+        $atomic = $type->atomicTypes[0];
+
+        return $atomic instanceof SimpleAtomicType && $atomic->kind === SimpleAtomicTypeKind::Never;
     }
 
     private static function isCheckableDeclaredReturn(Type $type): bool
@@ -475,18 +536,18 @@ final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
         return $source->getText($selector);
     }
 
-    private function firstPositionalArgument(SourceFile $source, Node $call): ?Node
+    private function methodConstraintArgument(SourceFile $source, Node $call): ?Node
     {
-        foreach ($source->getChildren($call) as $child) {
-            if ($child->kind !== NodeKind::ArgumentList) {
-                continue;
+        $expr = CallExpression::fromNode($source, $call);
+        foreach ($expr->arguments as $arg) {
+            if ($arg->name === 'constraint' && !$arg->unpacked) {
+                return $arg->value;
             }
-            foreach ($source->getChildren($child) as $argument) {
-                $variant = $source->getChildren($argument)[0] ?? null;
-                if ($variant !== null && $variant->kind === NodeKind::PositionalArgument) {
-                    return $source->getChildren($variant)[0] ?? null;
-                }
-            }
+        }
+
+        $first = $expr->arguments[0] ?? null;
+        if ($first !== null && $first->name === null && !$first->unpacked) {
+            return $first->value;
         }
 
         return null;

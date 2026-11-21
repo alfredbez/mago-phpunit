@@ -63,7 +63,8 @@ class ConcreteBillingGateway implements BillingGateway
 
 final class MockExpectationContractsTest extends TestCase
 {
-    public function testValidMockBuilderAndExpectations(string|null $maybeString): void
+    /** @param list<string> $dynamicStrings */
+    public function testValidMockBuilderAndExpectations(string|null $maybeString, array $dynamicStrings): void
     {
         $builderMock = $this->getMockBuilder(ConcreteBillingGateway::class)
             ->onlyMethods(['charge', 'rate'])
@@ -72,6 +73,8 @@ final class MockExpectationContractsTest extends TestCase
 
         $stub = $this->createStub(BillingGateway::class);
         $stub->method('charge')->willReturn('ok', 'ok2');
+        $stub->method('charge')->willReturn(...['a', 'b']);
+        $stub->method('charge')->willReturn(...$dynamicStrings);
         $stub->method('charge')->willReturn($maybeString);
         $stub->method('rate')->willReturn(2);
         $stub->method('rate')->willReturn(2.5);
@@ -80,6 +83,7 @@ final class MockExpectationContractsTest extends TestCase
         $stub->method('untyped')->willReturn(123);
         $stub->method('anything')->willReturn('any');
         $stub->method('charge')->willReturnOnConsecutiveCalls('a', 'b');
+        $stub->method('reset')->willReturnOnConsecutiveCalls(null);
 
         $mock = $this->createMock(BillingGateway::class);
         $mock->expects(self::once())->method('charge')->with(100)->willReturn('receipt');
@@ -96,6 +100,8 @@ final class MockExpectationContractsTest extends TestCase
     {
         $stub = $this->createStub(BillingGateway::class);
         $stub->method('charge')->willReturn(123);
+        $stub->method('charge')->willReturn(...[123]);
+        $stub->method(constraint: 'charge')->willReturn(123);
         $stub->method('charge')->willReturn(null);
         $stub->method('findCustomer')->willReturn('not-a-customer');
         $stub->method('reset')->willReturn(true);

@@ -7,7 +7,10 @@ namespace AlfredBez\MagoPhpunit\Analyzer;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\AssertArrayHasKeyAssertion;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\AssertArrayHasKeyFunctionAssertion;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\ContainsOnlyInstancesAssertion;
+use AlfredBez\MagoPhpunit\Analyzer\Providers\CoverageTargetsHook;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\DataProviderArguments;
+use AlfredBez\MagoPhpunit\Analyzer\Providers\IntersectionMockReturnTypeProvider;
+use AlfredBez\MagoPhpunit\Analyzer\Providers\MockMethodCallHook;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\PhpUnitFunctionAssertions;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\PhpUnitMethodAssertions;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\SetUpInitializer;
@@ -22,7 +25,7 @@ final class PhpUnitPlugin implements Plugin
         return new PluginDefinition(
             identifier: 'alfredbez/phpunit',
             name: 'PHPUnit',
-            description: 'Narrows PHPUnit assertions, recognizes setUp() and Before initializers, and checks data-provider rows.',
+            description: 'Narrows PHPUnit assertions and intersection mocks, recognizes setUp() and Before initializers, and checks data-provider rows, coverage targets, and mocked method names.',
             defaultEnabled: true,
         );
     }
@@ -36,8 +39,11 @@ final class PhpUnitPlugin implements Plugin
         $registry->registerMethodAssertionProvider(new PhpUnitMethodAssertions());
         $registry->registerFunctionAssertionProvider(new PhpUnitFunctionAssertions());
         $registry->registerMethodAssertionProvider(new ContainsOnlyInstancesAssertion());
+        $registry->registerMethodReturnTypeProvider(new IntersectionMockReturnTypeProvider());
         $registry->registerClassInitializerProvider(new SetUpInitializer());
         $registry->registerClassLikeAnalysisHook($dataProviders);
+        $registry->registerClassLikeAnalysisHook(new CoverageTargetsHook());
+        $registry->registerMethodCallAnalysisHook(new MockMethodCallHook());
         $registry->registerAfterAnalysisHook($dataProviders);
     }
 }

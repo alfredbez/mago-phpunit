@@ -319,6 +319,28 @@ $expected[false]['tests/fixtures/TestWithAttributes.php'] = [
 $expected[true]['tests/fixtures/TestWithAttributes.php'] = [
     'alfredbez/phpunit/phpunit-data-provider' => 0,
 ];
+$expected[false]['tests/fixtures/IntersectionMocks.php'] = [
+    'non-existent-method' => 6,
+];
+$expected[true]['tests/fixtures/IntersectionMocks.php'] = [
+    'non-existent-method' => 13,
+    'possibly-invalid-argument' => 2,
+];
+$coversMethodSupported = class_exists(\PHPUnit\Framework\Attributes\CoversMethod::class);
+$coversTraitSupported = class_exists(\PHPUnit\Framework\Attributes\CoversTrait::class);
+$expected[false]['tests/fixtures/CoverageTargets.php'] = [
+    'alfredbez/phpunit/phpunit-invalid-covers-target' => 8,
+    'non-existent-attribute-class' => ($coversMethodSupported ? 0 : 8) + ($coversTraitSupported ? 0 : 4),
+];
+$expected[true]['tests/fixtures/CoverageTargets.php'] = [
+    'non-existent-attribute-class' => ($coversMethodSupported ? 0 : 8) + ($coversTraitSupported ? 0 : 4),
+];
+$expected[false]['tests/fixtures/MockMethodCalls.php'] = [
+    'alfredbez/phpunit/phpunit-unknown-mocked-method' => 7,
+];
+$expected[true]['tests/fixtures/MockMethodCalls.php'] = [
+    'uninitialized-property' => 2,
+];
 // PHPUnit 13.1 introduced #[DataProviderClosure]. Earlier versions report the missing attribute class,
 // and the extension adds no issues there.
 $closureProviderSupported = is_file('vendor/phpunit/phpunit/src/Framework/Attributes/DataProviderClosure.php');
@@ -830,6 +852,29 @@ foreach ([
     'Attribute #[TestWithJson] row #7 provides int for testTestWithJson(), which expects an argument list.' => 1,
 ] as $needle => $count) {
     $failures += assertMessageCount('with extension', $with, $testWithFile, $dataProvider, $needle, $count);
+}
+$coversCode = 'alfredbez/phpunit/phpunit-invalid-covers-target';
+foreach ([
+    '#[CoversClass] target class `AlfredBez\\MagoPhpunit\\Fixtures\\NonExistentCoveredClass` does not exist.' => 1,
+    '#[UsesClass] target class `AlfredBez\\MagoPhpunit\\Fixtures\\NonExistentUsedClass` does not exist.' => 1,
+    '#[CoversTrait] target trait `AlfredBez\\MagoPhpunit\\Fixtures\\NonExistentCoveredTrait` does not exist.' => 1,
+    '#[UsesTrait] target trait `AlfredBez\\MagoPhpunit\\Fixtures\\NonExistentUsedTrait` does not exist.' => 1,
+    '#[CoversMethod] target method `AlfredBez\\MagoPhpunit\\Fixtures\\CoverageSubject::nonExistentCoveredMethod()` does not exist.' => 1,
+    '#[UsesMethod] target method `AlfredBez\\MagoPhpunit\\Fixtures\\CoverageSubject::nonExistentUsedMethod()` does not exist.' => 1,
+    '#[CoversFunction] target function `AlfredBez\\MagoPhpunit\\Fixtures\\nonExistentCoveredFunction` does not exist.' => 1,
+    '#[UsesFunction] target function `AlfredBez\\MagoPhpunit\\Fixtures\\nonExistentUsedFunction` does not exist.' => 1,
+] as $needle => $count) {
+    $failures += assertMessageCount('with extension', $with, 'tests/fixtures/CoverageTargets.php', $coversCode, $needle, $count);
+}
+$mockMethodCode = 'alfredbez/phpunit/phpunit-unknown-mocked-method';
+foreach ([
+    'Trying to mock an undefined method `AlfredBez\\MagoPhpunit\\Fixtures\\MockedMailer::sendInvoce()`.' => 3,
+    'Trying to mock an undefined method `AlfredBez\\MagoPhpunit\\Fixtures\\MockedMailer::missingOnStubProperty()`.' => 1,
+    'Trying to mock an undefined method `AlfredBez\\MagoPhpunit\\Fixtures\\MockedNumbers::missingOnTraversable()`.' => 1,
+    'Trying to mock an undefined method `AlfredBez\\MagoPhpunit\\Fixtures\\MockedLetters::current()`.' => 1,
+    'Trying to mock an undefined method `AlfredBez\\MagoPhpunit\\Fixtures\\MockedNotifier::sendInvoice()`.' => 1,
+] as $needle => $count) {
+    $failures += assertMessageCount('with extension', $with, 'tests/fixtures/MockMethodCalls.php', $mockMethodCode, $needle, $count);
 }
 foreach ($with as $issue) {
     if (

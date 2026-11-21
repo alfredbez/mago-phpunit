@@ -43,6 +43,24 @@
       "url": "https://github.com/carthage-software/mago/issues/2383",
       "kind": "issue",
       "scope": "historical native Mago gap, not evidence of a gap in this extension"
+    },
+    "psalm-intersection-mocks": {
+      "url": "https://github.com/psalm/psalm-plugin-phpunit/blob/b4534fb884c39821f332c2d95e1a036c6244f632/tests/acceptance/IntersectionMocks.feature",
+      "kind": "analyzer-test",
+      "scope": "createMockForIntersectionOfInterfaces() and createStubForIntersectionOfInterfaces() return type narrowing for literal lists of >=2 interfaces",
+      "sha256": "048adbc703290f8c131c03f0ed4e88dd01c58fca67931fc109cebb22f04f38ca"
+    },
+    "psalm-covers-targets": {
+      "url": "https://github.com/psalm/psalm-plugin-phpunit/blob/b4534fb884c39821f332c2d95e1a036c6244f632/tests/acceptance/CoversTargets.feature",
+      "kind": "analyzer-test",
+      "scope": "Validation of #[CoversClass], #[CoversTrait], #[CoversMethod], #[CoversFunction], #[UsesClass], #[UsesTrait], #[UsesMethod], and #[UsesFunction] targets",
+      "sha256": "5a947c18c0bc4dded9ad535d31226c00342e2465d14e47fd15d8e83ff9e44e2b"
+    },
+    "psalm-mock-method": {
+      "url": "https://github.com/psalm/psalm-plugin-phpunit/blob/b4534fb884c39821f332c2d95e1a036c6244f632/tests/acceptance/MockMethod.feature",
+      "kind": "analyzer-test",
+      "scope": "Validation of literal method names passed to MockObject::method() and Stub::method() against the mocked target",
+      "sha256": "77d6b2e0cab6a1bc2c674e8e2f786d785be6182f3a88f45915a788520a20cdf1"
     }
   },
   "cases": [
@@ -330,6 +348,45 @@
       "priority": "P1",
       "versions": "Verified on Mago 1.60.2 / PHP 8.3 / PHPUnit 12.5.",
       "coverage": ["tests/fixtures/DependencyReturnTypes.php", "tests/runtime/TestWithAndDependencyVariantsTest.php", "tests/run.php"],
+      "status": "covered"
+    },
+    {
+      "id": "PHPUNIT-M001",
+      "title": "createMockForIntersectionOfInterfaces and createStubForIntersectionOfInterfaces return intersected double types",
+      "sources": ["psalm-intersection-mocks"],
+      "fixture": "<?php use PHPUnit\\Framework\\TestCase; interface A { public function a(): int; } interface B { public function b(): void; } final class T extends TestCase { public function testIt(): void { $m = $this->createMockForIntersectionOfInterfaces([A::class, B::class]); $m->b(); } }",
+      "semantics": "TestCase::createMockForIntersectionOfInterfaces() and createStubForIntersectionOfInterfaces() accept a list of at least two distinct interfaces and return a MockObject or Stub implementing every listed interface.",
+      "analyzer_expectation": "Narrow the return type to I1&I2&...&MockObject or I1&I2&...&Stub for literal lists of at least two distinct existing interfaces, and fall back to PHPUnit's declared return type for open arrays, single-element lists, duplicate interfaces, or non-interface class names.",
+      "negative_control": "Calling an unknown method on the intersection mock or expects() on an intersection stub reports non-existent-method; open lists, single-element lists, duplicate interfaces, and non-interface entries fall back to MockObject and report non-existent-method on interface calls.",
+      "priority": "P0",
+      "versions": "Verified on Mago 1.60.2 / PHP 8.3 against PHPUnit 10.5, 11.5, 12.5, and 13.0.",
+      "coverage": ["tests/fixtures/IntersectionMocks.php", "tests/runtime/Wave4ContractsRuntimeTest.php", "tests/run.php"],
+      "status": "covered"
+    },
+    {
+      "id": "PHPUNIT-C001",
+      "title": "Coverage attributes validate target classes, traits, methods, and functions against the codebase",
+      "sources": ["psalm-covers-targets"],
+      "fixture": "<?php use PHPUnit\\Framework\\Attributes\\CoversClass; use PHPUnit\\Framework\\TestCase; #[CoversClass(Missing::class)] final class T extends TestCase {}",
+      "semantics": "CoversClass, UsesClass, CoversTrait, UsesTrait, CoversMethod, UsesMethod, CoversFunction, and UsesFunction attributes must reference existing classes, traits, methods, or functions.",
+      "analyzer_expectation": "Report phpunit-invalid-covers-target when a coverage attribute on a TestCase class references a nonexistent class, trait, method (including inherited and trait methods), or function.",
+      "negative_control": "ValidCoverageTargetsTest (own method, inherited method, trait method, protected method, case-insensitive method, and namespaced function) produces zero diagnostics; InvalidCoverageTargetsTest reports all eight missing targets; disabling extensions removes all eight diagnostics.",
+      "priority": "P1",
+      "versions": "Verified on Mago 1.60.2 / PHP 8.3 / PHPUnit 12.5.",
+      "coverage": ["tests/fixtures/CoverageTargets.php", "tests/runtime/Wave4ContractsRuntimeTest.php", "tests/run.php"],
+      "status": "covered"
+    },
+    {
+      "id": "PHPUNIT-M002",
+      "title": "MockObject::method() and Stub::method() validate literal method names against the mocked type",
+      "sources": ["psalm-mock-method"],
+      "fixture": "<?php use PHPUnit\\Framework\\TestCase; interface Mailer { public function send(): bool; } final class T extends TestCase { public function testIt(): void { $this->createStub(Mailer::class)->method('typo'); } }",
+      "semantics": "Configuring a nonexistent method on a PHPUnit MockObject or Stub throws MethodCannotBeConfiguredException at runtime, except for __call targets, property hooks ($prop::get/set), and Traversable iterator methods on direct Traversable interfaces.",
+      "analyzer_expectation": "Report phpunit-unknown-mocked-method for literal method names on typed MockObject&T and Stub&T receivers (including union members) when T has a complete hierarchy, no __call, no matching @method pseudo-method, and is not a direct Traversable iterator method.",
+      "negative_control": "Valid method names, case-insensitive matches, dynamic string variables, property hooks, @method pseudo-methods, __call classes, and direct Traversable current()/rewind() calls report zero issues; typos on MockObject, Stub, typed properties, IteratorAggregate::current(), and union members report 7 diagnostics.",
+      "priority": "P1",
+      "versions": "Verified on Mago 1.60.2 / PHP 8.3 / PHPUnit 12.5.",
+      "coverage": ["tests/fixtures/MockMethodCalls.php", "tests/runtime/Wave4ContractsRuntimeTest.php", "tests/run.php"],
       "status": "covered"
     }
   ]

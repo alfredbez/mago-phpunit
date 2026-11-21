@@ -185,6 +185,19 @@
       "versions": "Existing suite green across cycle 001's seven combinations on Mago 1.58.2. Conditional assignments remain an explicitly documented Mago limitation.",
       "coverage": ["tests/fixtures/SetUpPositive.php", "tests/fixtures/SetUpCounter.php", "tests/fixtures/SetUpInherited.php", "tests/fixtures/SetUpNotTestCase.php"],
       "status": "covered"
+    },
+    {
+      "id": "PHPUNIT-L002",
+      "title": "Before attributes initialize TestCase properties",
+      "sources": ["psalm-testcase", "phpunit-providers"],
+      "fixture": "<?php use PHPUnit\\Framework\\TestCase; use PHPUnit\\Framework\\Attributes\\Before; final class HookTest extends TestCase { private string $ready; #[Before] protected function prepare(): void { $this->ready = 'ready'; } public function testReady(): void { self::assertSame('ready', $this->ready); } }",
+      "semantics": "PHPUnit invokes Before hooks before each test, including inherited hooks. Multiple hooks and their helper methods can initialize instance properties.",
+      "analyzer_expectation": "Treat resolved PHPUnit Before attributes on TestCase methods as property initializers using the existing SDK initializer provider. Preserve diagnostics for properties that no initializer assigns.",
+      "negative_control": "Empty Before hook, After hook, unrelated attribute named Before, and non-TestCase class each retain one initialization error. Disabling extensions restores all eight errors in the fixture. Runtime controls prove late and unrelated hooks have not initialized properties during the test.",
+      "priority": "P0",
+      "versions": "Red before implementation and green after it on Mago 1.60.2 / PHP 8.4 / PHPUnit 12.5.40. Psalm pinned TestCase.feature supplies the inherited Before hypothesis. Annotation-based @before and hook priority/order inference are outside this case.",
+      "coverage": ["tests/fixtures/BeforeInitializer.php", "tests/runtime/BeforeInitializerTest.php", "tests/run.php"],
+      "status": "covered"
     }
   ]
 }

@@ -9,7 +9,7 @@ use Mago\Sdk\Analyzer\ClassInitializerProviderContext;
 use Mago\Sdk\Analyzer\ClassTarget;
 
 /**
- * PHPUnit runs setUp() before every test method, so assignments there initialize properties.
+ * PHPUnit runs setUp() and Before hooks before every test method.
  */
 final class SetUpInitializer implements ClassInitializerProvider
 {
@@ -22,10 +22,21 @@ final class SetUpInitializer implements ClassInitializerProvider
 
     public function getClassInitializers(ClassInitializerProviderContext $context): array
     {
-        if (!$context->codebase->methodExists($context->class->name, 'setUp')) {
-            return [];
+        $initializers = [];
+        if ($context->codebase->methodExists($context->class->name, 'setUp')) {
+            $initializers[] = 'setUp';
         }
 
-        return ['setUp'];
+        foreach ($context->class->methods as $name) {
+            $method = $context->codebase->getMethod($context->class->name, $name);
+            foreach ($method?->attributes ?? [] as $attribute) {
+                if (strtolower($attribute->name) === 'phpunit\\framework\\attributes\\before') {
+                    $initializers[] = $name;
+                    break;
+                }
+            }
+        }
+
+        return array_values(array_unique($initializers));
     }
 }

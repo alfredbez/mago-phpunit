@@ -63,6 +63,9 @@ $expected = [
         'tests/fixtures/SetUpPositive.php' => [
             'uninitialized-property' => 0,
         ],
+        'tests/fixtures/BeforeInitializer.php' => [
+            'uninitialized-property' => 4,
+        ],
         'tests/fixtures/SetUpCounter.php' => [
             'uninitialized-property' => 1,
         ],
@@ -109,6 +112,9 @@ $expected = [
         ],
         'tests/fixtures/SetUpPositive.php' => [
             'uninitialized-property' => 1,
+        ],
+        'tests/fixtures/BeforeInitializer.php' => [
+            'uninitialized-property' => 8,
         ],
         'tests/fixtures/SetUpCounter.php' => [
             'uninitialized-property' => 2,
@@ -246,6 +252,9 @@ foreach ([false => 'with extension', true => '--no-extensions'] as $disabled => 
         foreach (['nullable-return-statement', 'invalid-return-statement'] as $code) {
             $failures += assertMessageCount($label, $issues, 'tests/fixtures/HasKeyNullable.php', $code, 'test' . $call . 'DoesNotExcludeNull', 1);
         }
+    }
+    foreach (['BeforeMissingAssignmentTest', 'AfterDoesNotInitializeTest', 'UnrelatedBeforeTest', 'BeforeNotTestCase'] as $class) {
+        $failures += assertMessageCount($label, $issues, 'tests/fixtures/BeforeInitializer.php', 'uninitialized-property', $class, 1);
     }
 }
 

@@ -20,7 +20,7 @@ final class PhpUnitPlugin implements Plugin
         return new PluginDefinition(
             identifier: 'alfredbez/phpunit',
             name: 'PHPUnit',
-            description: 'Narrows PHPUnit assertions, treats setUp() as a test initializer, and checks data-provider rows.',
+            description: 'Narrows PHPUnit assertions, recognizes setUp() and Before initializers, and checks data-provider rows.',
             defaultEnabled: true,
         );
     }

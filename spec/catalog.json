@@ -315,6 +315,19 @@
       "versions": "Verified on Mago 1.60.2 / PHP 8.3 / PHPUnit 12.5.40.",
       "coverage": ["tests/fixtures/DataProviderExternalCrossFile.php", "tests/fixtures/ExternalCrossFileProvider.php", "tests/runtime/TestWithAndDependencyVariantsTest.php", "tests/run.php"],
       "status": "covered"
+    },
+    {
+      "id": "PHPUNIT-D009",
+      "title": "Method dependency return types are validated against receiving test parameters",
+      "sources": ["phpunit-dependencies"],
+      "fixture": "<?php use PHPUnit\\Framework\\Attributes\\Depends; use PHPUnit\\Framework\\TestCase; final class DepTypesTest extends TestCase { public function testSeed(): int { return 7; } #[Depends('testSeed')] public function testConsumer(int $seed): void {} }",
+      "semantics": "Method dependencies (Depends, DependsExternal, and their DeepClone/ShallowClone variants) pass producer return values after provider arguments, or starting at parameter 0 when no provider is present; PHPUnit versions with PassedTests::hasReturnValue() omit void and never producers from dependencyInput.",
+      "analyzer_expectation": "Read producer return types via codebase->getMethod() and report concrete mismatches against the receiving parameter while skipping void/never producers when PassedTests::hasReturnValue() exists and staying conservative on mixed or untyped producers and ordering-only consumers with no parameters.",
+      "negative_control": "Mismatches across Depends, DependsExternal, DeepClone/ShallowClone variants, nullable-into-non-null, after DataProvider, and after TestWith report 9 diagnostics; valid, ordering-only, nullable-into-nullable, mixed, and untyped cases report 0; disabling extensions removes all 9.",
+      "priority": "P1",
+      "versions": "Verified on Mago 1.60.2 / PHP 8.3 / PHPUnit 12.5.",
+      "coverage": ["tests/fixtures/DependencyReturnTypes.php", "tests/runtime/TestWithAndDependencyVariantsTest.php", "tests/run.php"],
+      "status": "covered"
     }
   ]
 }

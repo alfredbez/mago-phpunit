@@ -19,6 +19,8 @@ final class PhpUnitVersion
 
     private const DATA_PROVIDER_CLOSURE = 'PHPUnit\\Framework\\Attributes\\DataProviderClosure';
 
+    private const PASSED_TESTS = 'PHPUnit\\TestRunner\\TestResult\\PassedTests';
+
     /** Added in PHPUnit 11.0.0 alongside named argument unpacking from data providers. */
     private const PHPUNIT_11_METHOD = 'expectUserDeprecationMessage';
 
@@ -64,5 +66,10 @@ final class PhpUnitVersion
     public static function supportsDataProviderClosure(Codebase $codebase): bool
     {
         return $codebase->classExists(self::DATA_PROVIDER_CLOSURE);
+    }
+
+    public static function skipsVoidDependencyReturnValue(Codebase $codebase): bool
+    {
+        return $codebase->methodExists(self::PASSED_TESTS, 'hasReturnValue');
     }
 }

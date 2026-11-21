@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 chdir(dirname(__DIR__));
+require __DIR__ . '/../vendor/autoload.php';
 
 $failures = 0;
 
@@ -291,6 +292,13 @@ $expected[false]['tests/fixtures/DataProviderDependencyVariants.php'] = [
     'alfredbez/phpunit/phpunit-data-provider' => 3,
 ];
 $expected[true]['tests/fixtures/DataProviderDependencyVariants.php'] = [
+    'alfredbez/phpunit/phpunit-data-provider' => 0,
+];
+$skipsVoidDep = method_exists(\PHPUnit\TestRunner\TestResult\PassedTests::class, 'hasReturnValue');
+$expected[false]['tests/fixtures/DependencyReturnTypes.php'] = [
+    'alfredbez/phpunit/phpunit-data-provider' => $skipsVoidDep ? 9 : 10,
+];
+$expected[true]['tests/fixtures/DependencyReturnTypes.php'] = [
     'alfredbez/phpunit/phpunit-data-provider' => 0,
 ];
 $expected[false]['tests/fixtures/DataProviderExternalCrossFile.php'] = [
@@ -761,6 +769,26 @@ foreach ([
     'singleRows() row #0 provides 1 argument for testDependsOnClassShallowCloneDoesNotSupplyArgument(), which requires 2.' => 1,
 ] as $needle => $count) {
     $failures += assertMessageCount('with extension', $with, $dependencyVariantsFile, $dataProvider, $needle, $count);
+}
+$dependencyReturnTypesFile = 'tests/fixtures/DependencyReturnTypes.php';
+foreach ([
+    'for testValidStandalone()' => 0,
+    'for testOrderingOnlyNoParams()' => 0,
+    'for testVoidSkippedBeforeInt()' => $skipsVoidDep ? 0 : 1,
+    'for testNullableIntoNullable()' => 0,
+    'for testMixedAndUntypedAreConservative()' => 0,
+    'for testValidProviderAndDeps()' => 0,
+    'Dependency testIntProducer() provides int for $expected of testMismatchStandalone(), which expects string.' => 1,
+    'Dependency testIntProducer() provides int for $expected of testMismatchDeepClone(), which expects string.' => 1,
+    'Dependency testIntProducer() provides int for $expected of testMismatchShallowClone(), which expects string.' => 1,
+    'Dependency AlfredBez\\MagoPhpunit\\Fixtures\\ExternalTypedProducerTest::testReturnInt() provides int for $expected of testMismatchExternal(), which expects string.' => 1,
+    'Dependency AlfredBez\\MagoPhpunit\\Fixtures\\ExternalTypedProducerTest::testReturnInt() provides int for $expected of testMismatchExternalDeepClone(), which expects string.' => 1,
+    'Dependency AlfredBez\\MagoPhpunit\\Fixtures\\ExternalTypedProducerTest::testReturnInt() provides int for $expected of testMismatchExternalShallowClone(), which expects string.' => 1,
+    'Dependency testNullableStringProducer() provides null|string for $expected of testMismatchNullableIntoNonNull(), which expects string.' => 1,
+    'Dependency testIntProducer() provides int for $dep of testMismatchAfterProvider(), which expects string.' => 1,
+    'Dependency AlfredBez\\MagoPhpunit\\Fixtures\\ExternalTypedProducerTest::testReturnInt() provides int for $dep of testMismatchAfterTestWith(), which expects string.' => 1,
+] as $needle => $count) {
+    $failures += assertMessageCount('with extension', $with, $dependencyReturnTypesFile, $dataProvider, $needle, $count);
 }
 $crossFileProvider = 'tests/fixtures/ExternalCrossFileProvider.php';
 foreach ([

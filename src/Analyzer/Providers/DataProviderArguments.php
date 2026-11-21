@@ -60,15 +60,22 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
 
     private const TEST_CASE = 'phpunit\\framework\\testcase';
 
-    /** Method dependencies that pass return values into TestCase::$dependencyInput. Class dependencies do not. */
-    private const METHOD_DEPENDENCY_ATTRIBUTES = [
+    /** Same-class method dependencies that pass return values into TestCase::$dependencyInput. */
+    private const SAME_CLASS_DEPENDENCY_ATTRIBUTES = [
         'phpunit\\framework\\attributes\\depends' => true,
-        'phpunit\\framework\\attributes\\dependsexternal' => true,
         'phpunit\\framework\\attributes\\dependsusingdeepclone' => true,
         'phpunit\\framework\\attributes\\dependsusingshallowclone' => true,
+    ];
+
+    /** External method dependencies that pass return values into TestCase::$dependencyInput. */
+    private const EXTERNAL_DEPENDENCY_ATTRIBUTES = [
+        'phpunit\\framework\\attributes\\dependsexternal' => true,
         'phpunit\\framework\\attributes\\dependsexternalusingdeepclone' => true,
         'phpunit\\framework\\attributes\\dependsexternalusingshallowclone' => true,
     ];
+
+    /** Method dependencies that pass return values into TestCase::$dependencyInput. Class dependencies do not. */
+    private const METHOD_DEPENDENCY_ATTRIBUTES = self::SAME_CLASS_DEPENDENCY_ATTRIBUTES + self::EXTERNAL_DEPENDENCY_ATTRIBUTES;
 
     /** @var WeakMap<SourceFile, array<string, array<string, Node>>> */
     private WeakMap $methodsByFile;
@@ -101,7 +108,11 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
     public function analyze(NodeAnalysisContext $context): void
     {
         $contents = $context->source->contents;
-        if (stripos($contents, 'dataprovider') === false && stripos($contents, 'testwith') === false) {
+        if (
+            stripos($contents, 'dataprovider') === false
+            && stripos($contents, 'testwith') === false
+            && stripos($contents, 'depends') === false
+        ) {
             return;
         }
 
@@ -125,7 +136,8 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
 
             $providers = $this->providerReferences($context, $source, $node, $className);
             $hasTestWith = $this->hasTestWithAttribute($source, $node);
-            if ($providers === [] && !$hasTestWith) {
+            $dependencies = $this->dependencyReferences($context, $source, $node, $className);
+            if ($providers === [] && !$hasTestWith && $dependencies === []) {
                 continue;
             }
 
@@ -135,7 +147,23 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
             }
 
             $testLabel = $this->methodLabel($source, $node);
-            $schema = $this->parameterSchema($test->parameters, $this->dependencyCount($source, $node));
+            $effectiveDependencies = $this->valuePassingDependencies($context, $dependencies);
+            $schema = $this->parameterSchema($test->parameters, count($effectiveDependencies));
+            $checkedDepOffsets = [];
+
+            if ($providers === [] && !$hasTestWith) {
+                $this->checkDependencyTypes(
+                    $context,
+                    $context->analysis->file,
+                    $effectiveDependencies,
+                    0,
+                    $testLabel,
+                    $schema,
+                    $checkedDepOffsets,
+                );
+                continue;
+            }
+
             foreach ($providers as $provider) {
                 $providerNode = $provider['node'] ?? $this->locateMethod($context, $methods, $provider['class'], $provider['method']);
                 if ($providerNode === null) {
@@ -146,17 +174,28 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                 $this->checkProvider(
                     $context,
                     $context->analysis,
+                    $context->analysis->file,
                     $source,
                     $providerNode,
                     $testLabel,
                     'Data provider ' . $providerLabel . '()',
                     $schema,
                     $provider['validateCount'],
+                    $effectiveDependencies,
+                    $checkedDepOffsets,
                 );
             }
 
             if ($hasTestWith) {
-                $this->checkTestWithAttributes($context, $context->analysis->file, $test->attributes, $testLabel, $schema);
+                $this->checkTestWithAttributes(
+                    $context,
+                    $context->analysis->file,
+                    $test->attributes,
+                    $testLabel,
+                    $schema,
+                    $effectiveDependencies,
+                    $checkedDepOffsets,
+                );
             }
         }
     }
@@ -177,10 +216,15 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
 
             $testFile = $testMethod->location->file;
             $testLabel = $testMethod->originalName ?? $testMethod->method->member;
+            $dependencies = $this->valuePassingDependencies(
+                $context,
+                $this->dependencyReferencesFromAttributes($testMethod->attributes, $testMethod->method->class),
+            );
             $schema = $this->parameterSchema(
                 $testMethod->parameters,
-                $this->dependencyCountFromAttributes($testMethod->attributes),
+                count($dependencies),
             );
+            $checkedDepOffsets = [];
 
             foreach ($testMethod->attributes as $attribute) {
                 if (strtolower($attribute->name) !== self::DATA_PROVIDER_EXTERNAL) {
@@ -218,20 +262,26 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                 $this->checkProvider(
                     $context,
                     $providerAnalysis,
+                    $testFile,
                     $providerSource,
                     $providerNode,
                     $testLabel,
                     'Data provider ' . $providerLabel . '()',
                     $schema,
                     $validateCount,
+                    $dependencies,
+                    $checkedDepOffsets,
                 );
             }
         }
     }
 
-    private function dependencyCount(SourceFile $source, Node $method): int
+    /**
+     * @return list<array{class: ?string, method: ?string, span: Span, external: bool}>
+     */
+    private function dependencyReferences(NodeAnalysisContext $context, SourceFile $source, Node $method, string $className): array
     {
-        $count = 0;
+        $dependencies = [];
         foreach ($source->getChildren($method) as $list) {
             if ($list->kind !== NodeKind::AttributeList) {
                 continue;
@@ -241,25 +291,196 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                     continue;
                 }
                 $name = strtolower($this->attributeName($source, $attribute) ?? '');
-                if (isset(self::METHOD_DEPENDENCY_ATTRIBUTES[$name])) {
-                    $count++;
+                if (!isset(self::METHOD_DEPENDENCY_ATTRIBUTES[$name])) {
+                    continue;
                 }
+
+                $arguments = $this->attributeArguments($source, $attribute);
+                if (isset(self::SAME_CLASS_DEPENDENCY_ATTRIBUTES[$name])) {
+                    $depMethod = $this->literalString(
+                        $source,
+                        $this->attributeArgument($source, $arguments, 0, 'methodName'),
+                    );
+                    $dependencies[] = [
+                        'class' => $depMethod !== null && $depMethod !== '' ? $className : null,
+                        'method' => $depMethod !== null && $depMethod !== '' ? $depMethod : null,
+                        'span' => $attribute->span,
+                        'external' => false,
+                    ];
+                    continue;
+                }
+
+                $classArg = $this->attributeArgument($source, $arguments, 0, 'className');
+                $methodArg = $this->attributeArgument($source, $arguments, 1, 'methodName');
+                $depClass = $classArg !== null ? $this->referencedClass($context, $source, $classArg) : null;
+                $depMethod = $this->literalString($source, $methodArg);
+                $dependencies[] = [
+                    'class' => $depClass,
+                    'method' => $depMethod !== null && $depMethod !== '' ? $depMethod : null,
+                    'span' => $attribute->span,
+                    'external' => true,
+                ];
             }
         }
-        return $count;
+
+        return $dependencies;
     }
 
-    /** @param list<AttributeMetadata> $attributes */
-    private function dependencyCountFromAttributes(array $attributes): int
+    /**
+     * @param list<AttributeMetadata> $attributes
+     * @return list<array{class: ?string, method: ?string, span: Span, external: bool}>
+     */
+    private function dependencyReferencesFromAttributes(array $attributes, string $className): array
     {
-        $count = 0;
+        $dependencies = [];
         foreach ($attributes as $attribute) {
-            if (isset(self::METHOD_DEPENDENCY_ATTRIBUTES[strtolower($attribute->name)])) {
-                $count++;
+            $name = strtolower($attribute->name);
+            if (!isset(self::METHOD_DEPENDENCY_ATTRIBUTES[$name])) {
+                continue;
             }
+
+            if (isset(self::SAME_CLASS_DEPENDENCY_ATTRIBUTES[$name])) {
+                $depMethod = $attribute->getArgument(0, 'methodName')?->valueType?->getLiteralString();
+                $dependencies[] = [
+                    'class' => $depMethod !== null && $depMethod !== '' ? $className : null,
+                    'method' => $depMethod !== null && $depMethod !== '' ? $depMethod : null,
+                    'span' => $attribute->location->span,
+                    'external' => false,
+                ];
+                continue;
+            }
+
+            $classArg = $attribute->getArgument(0, 'className');
+            $depClass = $classArg?->valueType?->getLiteralClassString() ?? $classArg?->valueType?->getLiteralString();
+            $depMethod = $attribute->getArgument(1, 'methodName')?->valueType?->getLiteralString();
+            $dependencies[] = [
+                'class' => $depClass !== null && $depClass !== '' ? $depClass : null,
+                'method' => $depMethod !== null && $depMethod !== '' ? $depMethod : null,
+                'span' => $attribute->location->span,
+                'external' => true,
+            ];
         }
 
-        return $count;
+        return $dependencies;
+    }
+
+    /**
+     * Filters out dependencies whose declared return type is `void` or `never` when the installed
+     * PHPUnit skips non-value-returning producers (PassedTests::hasReturnValue()).
+     *
+     * @param list<array{class: ?string, method: ?string, span: Span, external: bool}> $dependencies
+     * @return list<array{class: ?string, method: ?string, span: Span, external: bool}>
+     */
+    private function valuePassingDependencies(LifecycleContext $context, array $dependencies): array
+    {
+        if ($dependencies === [] || !PhpUnitVersion::skipsVoidDependencyReturnValue($context->codebase)) {
+            return $dependencies;
+        }
+
+        $passing = [];
+        foreach ($dependencies as $dependency) {
+            if ($dependency['class'] !== null && $dependency['method'] !== null) {
+                $producer = $context->codebase->getMethod($dependency['class'], $dependency['method']);
+                $declared = $producer?->declaredReturnType?->type;
+                if (
+                    $declared !== null
+                    && count($declared->atomicTypes) === 1
+                    && $declared->atomicTypes[0] instanceof SimpleAtomicType
+                    && (
+                        $declared->atomicTypes[0]->kind === SimpleAtomicTypeKind::Void
+                        || $declared->atomicTypes[0]->kind === SimpleAtomicTypeKind::Never
+                    )
+                ) {
+                    continue;
+                }
+            }
+            $passing[] = $dependency;
+        }
+
+        return $passing;
+    }
+
+    /**
+     * @param list<array{class: ?string, method: ?string, span: Span, external: bool}> $dependencies
+     * @param array{
+     *     required: int,
+     *     accepted: int,
+     *     variadic: bool,
+     *     names: list<string>,
+     *     requiredNames: list<string>,
+     *     positional: list<array{name: string, type: ?Type}>,
+     *     named: array<string, ?Type>,
+     *     variadicParameter: ?array{name: string, type: ?Type},
+     *     dependencies: int,
+     * } $schema
+     * @param array<int, true> $checkedOffsets
+     */
+    private function checkDependencyTypes(
+        LifecycleContext $context,
+        string $testFile,
+        array $dependencies,
+        int $offset,
+        string $testLabel,
+        array $schema,
+        array &$checkedOffsets,
+    ): void {
+        if ($dependencies === [] || isset($checkedOffsets[$offset])) {
+            return;
+        }
+        $checkedOffsets[$offset] = true;
+
+        foreach ($dependencies as $index => $dependency) {
+            $paramIndex = $offset + $index;
+            $parameter = $schema['positional'][$paramIndex] ?? $schema['variadicParameter'];
+            if ($parameter === null || $parameter['type'] === null) {
+                continue;
+            }
+
+            if ($dependency['class'] === null || $dependency['method'] === null) {
+                continue;
+            }
+
+            $producer = $context->codebase->getMethod($dependency['class'], $dependency['method']);
+            if ($producer === null) {
+                continue;
+            }
+
+            $returnType = $producer->returnType?->type ?? $producer->declaredReturnType?->type;
+            if ($returnType === null) {
+                continue;
+            }
+
+            if (
+                count($returnType->atomicTypes) === 1
+                && $returnType->atomicTypes[0] instanceof SimpleAtomicType
+                && $returnType->atomicTypes[0]->kind === SimpleAtomicTypeKind::Void
+            ) {
+                $returnType = Type::null();
+            }
+
+            if (!$this->isCheckableType($returnType)) {
+                continue;
+            }
+            if ($this->isFastPathContained($returnType, $parameter['type'])) {
+                continue;
+            }
+            if ($context->types->isContainedBy($returnType, $parameter['type'])) {
+                continue;
+            }
+
+            $depLabel = $dependency['external']
+                ? $dependency['class'] . '::' . $dependency['method'] . '()'
+                : $dependency['method'] . '()';
+
+            $this->report($context, $testFile, $dependency['span'], sprintf(
+                'Dependency %s provides %s for $%s of %s(), which expects %s.',
+                $depLabel,
+                (string) $returnType,
+                $parameter['name'],
+                $testLabel,
+                (string) $parameter['type'],
+            ));
+        }
     }
 
     private function hasTestWithAttribute(SourceFile $source, Node $method): bool
@@ -541,19 +762,37 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
      *     variadicParameter: ?array{name: string, type: ?Type},
      *     dependencies: int,
      * } $schema
+     * @param list<array{class: ?string, method: ?string, span: Span, external: bool}> $dependencies
+     * @param array<int, true> $checkedDepOffsets
      */
     private function checkProvider(
         LifecycleContext $context,
         FileAnalysis $analysis,
+        string $testFile,
         SourceFile $source,
         Node $provider,
         string $test,
         string $sourceLabel,
         array $schema,
         bool $validateCount,
+        array $dependencies,
+        array &$checkedDepOffsets,
     ): void {
         foreach ($this->extractProviderRows($analysis, $source, $provider) as $row) {
-            $this->checkRow($context, $analysis->file, $row['type'], $row['span'], $row['label'], $test, $sourceLabel, $schema, $validateCount);
+            $this->checkRow(
+                $context,
+                $analysis->file,
+                $testFile,
+                $row['type'],
+                $row['span'],
+                $row['label'],
+                $test,
+                $sourceLabel,
+                $schema,
+                $validateCount,
+                $dependencies,
+                $checkedDepOffsets,
+            );
         }
     }
 
@@ -654,6 +893,8 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
      *     variadicParameter: ?array{name: string, type: ?Type},
      *     dependencies: int,
      * } $schema
+     * @param list<array{class: ?string, method: ?string, span: Span, external: bool}> $dependencies
+     * @param array<int, true> $checkedDepOffsets
      */
     private function checkTestWithAttributes(
         LifecycleContext $context,
@@ -661,6 +902,8 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
         array $attributes,
         string $test,
         array $schema,
+        array $dependencies,
+        array &$checkedDepOffsets,
     ): void {
         $index = 0;
         foreach ($attributes as $attribute) {
@@ -682,7 +925,20 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                 }
 
                 $span = $dataArg->valueLocation?->span ?? $attribute->location->span;
-                $this->checkRow($context, $reportFile, $type, $span, $label, $test, 'Attribute #[TestWith]', $schema, true);
+                $this->checkRow(
+                    $context,
+                    $reportFile,
+                    $reportFile,
+                    $type,
+                    $span,
+                    $label,
+                    $test,
+                    'Attribute #[TestWith]',
+                    $schema,
+                    true,
+                    $dependencies,
+                    $checkedDepOffsets,
+                );
                 continue;
             }
 
@@ -717,6 +973,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
             $this->checkRow(
                 $context,
                 $reportFile,
+                $reportFile,
                 self::jsonValueToType($decoded),
                 $span,
                 $label,
@@ -724,6 +981,8 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                 'Attribute #[TestWithJson]',
                 $schema,
                 true,
+                $dependencies,
+                $checkedDepOffsets,
             );
         }
     }
@@ -840,10 +1099,13 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
      *     variadicParameter: ?array{name: string, type: ?Type},
      *     dependencies: int,
      * } $schema
+     * @param list<array{class: ?string, method: ?string, span: Span, external: bool}> $dependencies
+     * @param array<int, true> $checkedDepOffsets
      */
     private function checkRow(
         LifecycleContext $context,
         string $reportFile,
+        string $testFile,
         Type $type,
         Span $span,
         string $label,
@@ -851,6 +1113,8 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
         string $sourceLabel,
         array $schema,
         bool $validateCount,
+        array $dependencies,
+        array &$checkedDepOffsets,
     ): void {
         $named = $this->namedArguments($type);
         if ($named !== null) {
@@ -859,6 +1123,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                     $this->checkPositionalArguments(
                         $context,
                         $reportFile,
+                        $testFile,
                         array_values($named),
                         $span,
                         $label,
@@ -866,6 +1131,8 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                         $sourceLabel,
                         $schema,
                         $validateCount,
+                        $dependencies,
+                        $checkedDepOffsets,
                     );
 
                     return;
@@ -884,6 +1151,9 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                     $schema,
                     $validateCount,
                 );
+                if (count($named) >= $schema['required']) {
+                    $this->checkDependencyTypes($context, $testFile, $dependencies, count($named), $test, $schema, $checkedDepOffsets);
+                }
 
                 return;
             }
@@ -981,7 +1251,20 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
             return;
         }
 
-        $this->checkPositionalArguments($context, $reportFile, $arguments, $span, $label, $test, $sourceLabel, $schema, $validateCount);
+        $this->checkPositionalArguments(
+            $context,
+            $reportFile,
+            $testFile,
+            $arguments,
+            $span,
+            $label,
+            $test,
+            $sourceLabel,
+            $schema,
+            $validateCount,
+            $dependencies,
+            $checkedDepOffsets,
+        );
     }
 
     /**
@@ -997,10 +1280,13 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
      *     variadicParameter: ?array{name: string, type: ?Type},
      *     dependencies: int,
      * } $schema
+     * @param list<array{class: ?string, method: ?string, span: Span, external: bool}> $dependencies
+     * @param array<int, true> $checkedDepOffsets
      */
     private function checkPositionalArguments(
         LifecycleContext $context,
         string $reportFile,
+        string $testFile,
         array $arguments,
         Span $span,
         string $label,
@@ -1008,6 +1294,8 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
         string $sourceLabel,
         array $schema,
         bool $validateCount,
+        array $dependencies,
+        array &$checkedDepOffsets,
     ): void {
         $this->checkPositionalArity(
             $context,
@@ -1038,6 +1326,10 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                 $parameter['type'],
                 $argumentType,
             );
+        }
+
+        if (count($arguments) >= $schema['required']) {
+            $this->checkDependencyTypes($context, $testFile, $dependencies, count($arguments), $test, $schema, $checkedDepOffsets);
         }
     }
 

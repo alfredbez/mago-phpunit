@@ -95,4 +95,35 @@ final class TestWithAndDependencyVariantsTest extends TestCase
     {
         self::assertSame([1, 'one'], [$n, $label]);
     }
+
+    public function testVoidProducer(): void
+    {
+        self::assertTrue(true);
+    }
+
+    public function testNullableStringProducer(): ?string
+    {
+        self::assertTrue(true);
+
+        return null;
+    }
+
+    #[PHPUnit\Framework\Attributes\Depends('testNullableStringProducer')]
+    public function testNullableDependencyPassesNull(?string $value): void
+    {
+        self::assertNull($value);
+    }
+
+    #[PHPUnit\Framework\Attributes\Depends('testVoidProducer')]
+    public function testVoidDependencyIsOrderingOnly(): void
+    {
+        $skipsVoid = method_exists(\PHPUnit\TestRunner\TestResult\PassedTests::class, 'hasReturnValue');
+        self::assertSame($skipsVoid ? 0 : 1, func_num_args());
+    }
+
+    #[PHPUnit\Framework\Attributes\Depends('testLocalObject')]
+    public function testStandaloneDependencyPassesValue(stdClass $dep): void
+    {
+        self::assertSame('local', $dep->tag);
+    }
 }

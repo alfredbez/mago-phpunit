@@ -1,0 +1,46 @@
+{
+    "schema_version": 1,
+    "targets": {
+        "drupal": {
+            "ref": "11.4.13",
+            "eliminated_count": 13,
+            "eliminated_by_code": {
+                "mixed-array-access": 13
+            },
+            "added_by_code": []
+        },
+        "phpunit": {
+            "ref": "12.5.45",
+            "eliminated_count": 8,
+            "eliminated_by_code": {
+                "uninitialized-property": 8
+            },
+            "added_by_code": {
+                "alfredbez/phpunit/phpunit-data-provider": 4
+            }
+        },
+        "shopware": {
+            "ref": "v6.7.9.1",
+            "eliminated_count": 86,
+            "eliminated_by_code": {
+                "invalid-iterator": 1,
+                "invalid-method-access": 1,
+                "mixed-argument": 4,
+                "mixed-array-access": 28,
+                "possible-method-access-on-null": 1,
+                "uninitialized-property": 51
+            },
+            "added_by_code": {
+                "invalid-iterator": 1,
+                "invalid-method-access": 1,
+                "mixed-array-access": 5
+            }
+        },
+        "symfony": {
+            "ref": "v7.2.9",
+            "eliminated_count": 0,
+            "eliminated_by_code": [],
+            "added_by_code": []
+        }
+    }
+}

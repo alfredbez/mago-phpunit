@@ -4,20 +4,26 @@ declare(strict_types=1);
 
 /**
  * Runs Mago with and without the PHPUnit extension against pinned OSS corpora
- * and computes exact diagnostic diffs, overhead ratios, and crash checks.
+ * and enforces per-code snapshot baselines, overhead reporting, and crash checks.
  *
  * Usage:
- *   php tools/corpus-run.php [--cache=/path/to/cache] [--target=name] [--json=/path/out.json] [--check]
+ *   php tools/corpus-run.php [--cache=/path/to/cache] [--target=name[,name]] [--json=/path/out.json] [--baseline=/path/baseline.json] [--check] [--update-baseline] [--no-clone]
  */
 
 $repoRoot = dirname(__DIR__);
-$options = getopt('', ['cache::', 'target::', 'json::', 'check', 'no-clone']);
+$options = getopt('', ['cache::', 'target::', 'json::', 'baseline::', 'check', 'update-baseline', 'no-clone']);
 $cacheDir = is_string($options['cache'] ?? null) && $options['cache'] !== ''
     ? rtrim($options['cache'], '/')
     : $repoRoot . '/.corpus-cache';
-$filterTarget = is_string($options['target'] ?? null) ? $options['target'] : null;
+$filterTargets = is_string($options['target'] ?? null) && $options['target'] !== '' && $options['target'] !== 'all'
+    ? array_values(array_filter(array_map('trim', explode(',', $options['target'])), static fn (string $v): bool => $v !== ''))
+    : null;
 $jsonOut = is_string($options['json'] ?? null) ? $options['json'] : null;
+$baselinePath = is_string($options['baseline'] ?? null) && $options['baseline'] !== ''
+    ? $options['baseline']
+    : $repoRoot . '/tools/corpus-baseline.json';
 $checkGate = isset($options['check']);
+$updateBaseline = isset($options['update-baseline']);
 $noClone = isset($options['no-clone']);
 
 $magoBin = getenv('MAGO_BIN');
@@ -32,8 +38,9 @@ $targets = [
         'php_version' => '8.3',
         'paths' => ['tests/unit/Framework/Assert', 'tests/unit/Metadata'],
         'includes' => ['src', 'vendor'],
+        'repo_includes' => [],
+        'install_composer' => true,
         'check_property_init' => true,
-        'max_extension_issues' => 50,
     ],
     'symfony' => [
         'repo' => 'https://github.com/symfony/symfony.git',
@@ -44,10 +51,58 @@ $targets = [
             'src/Symfony/Component/DependencyInjection/Tests/Dumper',
         ],
         'includes' => ['src', 'vendor'],
+        'repo_includes' => [],
+        'install_composer' => true,
         'check_property_init' => true,
-        'max_extension_issues' => 50,
+    ],
+    'shopware' => [
+        'repo' => 'https://github.com/shopware/shopware.git',
+        'ref' => 'v6.7.9.1',
+        'php_version' => '8.3',
+        'paths' => [
+            'tests/unit/Core/Framework/Util',
+            'tests/unit/Core/Framework/Validation',
+            'tests/unit/Core/Framework/Adapter',
+        ],
+        'includes' => ['src', 'tests/unit'],
+        'repo_includes' => ['vendor/phpunit/phpunit/src'],
+        'install_composer' => false,
+        'check_property_init' => true,
+    ],
+    'drupal' => [
+        'repo' => 'https://github.com/drupal/core.git',
+        'ref' => '11.4.13',
+        'php_version' => '8.3',
+        'paths' => [
+            'tests/Drupal/Tests/Core/Utility',
+            'tests/Drupal/Tests/Core/Validation',
+            'tests/Drupal/Tests/Core/Routing',
+            'tests/Drupal/Tests/Core/DependencyInjection',
+            'tests/Drupal/KernelTests/Core/DependencyInjection',
+        ],
+        'includes' => ['lib', 'tests/Drupal/Tests', 'tests/Drupal/KernelTests', 'tests/Drupal/TestTools'],
+        'repo_includes' => ['vendor/phpunit/phpunit/src'],
+        'install_composer' => false,
+        'check_property_init' => true,
     ],
 ];
+
+if ($filterTargets !== null) {
+    foreach ($filterTargets as $wanted) {
+        if (!isset($targets[$wanted])) {
+            fwrite(STDERR, "Unknown target: {$wanted}\n");
+            exit(1);
+        }
+    }
+}
+
+$baselineData = ['schema_version' => 1, 'targets' => []];
+if (is_file($baselinePath)) {
+    $decodedBaseline = json_decode((string) file_get_contents($baselinePath), true);
+    if (is_array($decodedBaseline) && isset($decodedBaseline['targets']) && is_array($decodedBaseline['targets'])) {
+        $baselineData = $decodedBaseline;
+    }
+}
 
 if (!is_dir($cacheDir)) {
     mkdir($cacheDir, 0777, true);
@@ -57,7 +112,7 @@ $results = [];
 $failures = 0;
 
 foreach ($targets as $name => $spec) {
-    if ($filterTarget !== null && $filterTarget !== $name) {
+    if ($filterTargets !== null && !in_array($name, $filterTargets, true)) {
         continue;
     }
 
@@ -76,7 +131,7 @@ foreach ($targets as $name => $spec) {
         }
     }
 
-    if (is_file($dir . '/composer.json') && !is_dir($dir . '/vendor')) {
+    if ($spec['install_composer'] && is_file($dir . '/composer.json') && !is_dir($dir . '/vendor')) {
         $composer = is_file('/opt/mago-bin/composer.phar')
             ? [PHP_BINARY, '/opt/mago-bin/composer.phar']
             : ['composer'];
@@ -91,8 +146,22 @@ foreach ($targets as $name => $spec) {
     }
 
     $tomlPath = $dir . '/.mago-phpunit-corpus.toml';
-    $pathsToml = implode(', ', array_map(static fn (string $p): string => json_encode($p, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), $spec['paths']));
-    $includesToml = implode(', ', array_map(static fn (string $p): string => json_encode($p, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), array_filter($spec['includes'], static fn (string $p): bool => is_dir($dir . '/' . $p))));
+    $existingPaths = array_values(array_filter($spec['paths'], static fn (string $p): bool => is_dir($dir . '/' . $p) || is_file($dir . '/' . $p)));
+    $pathsToml = implode(', ', array_map(static fn (string $p): string => json_encode($p, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), $existingPaths));
+
+    $includeList = [];
+    foreach ($spec['includes'] as $p) {
+        if (is_dir($dir . '/' . $p)) {
+            $includeList[] = $p;
+        }
+    }
+    foreach ($spec['repo_includes'] as $p) {
+        $abs = $repoRoot . '/' . $p;
+        if (is_dir($abs)) {
+            $includeList[] = $abs;
+        }
+    }
+    $includesToml = implode(', ', array_map(static fn (string $p): string => json_encode($p, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), $includeList));
     $workerPath = json_encode($repoRoot . '/tests/worker.php', JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
     $phpBin = json_encode(PHP_BINARY, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
     $propInit = $spec['check_property_init'] ? 'true' : 'false';
@@ -148,7 +217,7 @@ TOML;
         'stderr' => trim($with['stderr']),
         'eliminated_by_code' => countByCode($diff['removed']),
         'added_by_code' => countByCode($diff['added']),
-        'added_samples' => array_slice($diff['added'], 0, 25),
+        'added_samples' => array_slice($diff['added'], 0, 50),
     ];
     $results[$name] = $entry;
 
@@ -178,11 +247,53 @@ TOML;
     if ($entry['crashed']) {
         fwrite(STDERR, "FAIL {$name}: extension worker crashed: {$entry['stderr']}\n");
         $failures++;
+        continue;
     }
-    if ($checkGate && $entry['extension_issue_count'] > $spec['max_extension_issues']) {
-        fwrite(STDERR, "FAIL {$name}: extension issues {$entry['extension_issue_count']} exceeded threshold {$spec['max_extension_issues']}\n");
-        $failures++;
+
+    if ($updateBaseline) {
+        $addedSorted = $entry['added_by_code'];
+        ksort($addedSorted);
+        $eliminatedSorted = $entry['eliminated_by_code'];
+        ksort($eliminatedSorted);
+        $baselineData['targets'][$name] = [
+            'ref' => $spec['ref'],
+            'eliminated_count' => $entry['eliminated_count'],
+            'eliminated_by_code' => $eliminatedSorted,
+            'added_by_code' => $addedSorted,
+        ];
     }
+
+    if ($checkGate) {
+        $base = $baselineData['targets'][$name] ?? null;
+        if (!is_array($base)) {
+            fwrite(STDERR, "FAIL {$name}: no snapshot baseline in {$baselinePath} (run with --update-baseline)\n");
+            $failures++;
+            continue;
+        }
+        if (($base['ref'] ?? null) !== $spec['ref']) {
+            fwrite(STDERR, sprintf("FAIL %s: baseline ref %s does not match target ref %s\n", $name, (string) ($base['ref'] ?? 'missing'), $spec['ref']));
+            $failures++;
+        }
+        $baseAdded = is_array($base['added_by_code'] ?? null) ? $base['added_by_code'] : [];
+        foreach ($entry['added_by_code'] as $code => $count) {
+            $allowed = (int) ($baseAdded[$code] ?? 0);
+            if ($count > $allowed) {
+                fwrite(STDERR, "FAIL {$name}: added code {$code} increased from {$allowed} to {$count}\n");
+                $failures++;
+            }
+        }
+        $baseEliminated = (int) ($base['eliminated_count'] ?? 0);
+        if ($entry['eliminated_count'] < $baseEliminated) {
+            fwrite(STDERR, "FAIL {$name}: eliminated_count dropped from {$baseEliminated} to {$entry['eliminated_count']}\n");
+            $failures++;
+        }
+    }
+}
+
+if ($updateBaseline && $failures === 0) {
+    ksort($baselineData['targets']);
+    file_put_contents($baselinePath, json_encode($baselineData, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+    fwrite(STDOUT, "Updated baseline: {$baselinePath}\n");
 }
 
 if ($jsonOut !== null) {

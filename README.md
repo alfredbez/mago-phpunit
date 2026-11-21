@@ -1,39 +1,40 @@
 # alfredbez/mago-phpunit
 
-PHPUnit support for [Mago](https://github.com/carthage-software/mago). This package is an external analyzer extension that teaches Mago about PHPUnit assertions, `TestCase` property initialization, and data providers. It does not modify PHPUnit.
+PHPUnit support for [Mago](https://github.com/carthage-software/mago). This package is an external analyzer extension that teaches Mago about PHPUnit assertions, `TestCase` property initialization, data providers, and test dependencies. It does not modify PHPUnit.
 
 ## Features
 
-The extension registers five hooks under the `alfredbez/phpunit` plugin:
+The extension registers hooks under the `alfredbez/phpunit` plugin:
 
-- `assertArrayHasKey()` narrows the array argument when the key is a literal string or integer. Calls may go through `$this`, `self::`, `static::`, `PHPUnit\Framework\Assert::`, or the function `PHPUnit\Framework\assertArrayHasKey()`. A non-literal key is not narrowed, other keys stay uncertain, and nullable values remain nullable. Named-argument warnings from PHPUnit's compatibility annotations are preserved.
-- `assertContainsOnlyInstancesOf(Foo::class, $items)` narrows `$items` to `iterable<mixed, Foo>` when the first argument is a literal class string and the installed `Assert::assertContainsOnlyInstancesOf()` carries no assertion of its own for `$haystack`. PHPUnit 11.5 and later already declare `@phpstan-assert` on that method, so this hook activates only on PHPUnit 10.5. A non-literal class name is left unchanged.
-- `setUp()` and methods with `#[PHPUnit\Framework\Attributes\Before]` count as class initializers on subclasses of `PHPUnit\Framework\TestCase` when Mago checks property initialization. That includes parent test classes, multiple `#[Before]` hooks, and helper methods called from an initializer. Missing assignments, `#[After]`, unrelated attributes named `Before`, and classes outside `TestCase` retain their initialization diagnostics.
-- Data providers on `TestCase` subclasses are checked and reported at error level as `alfredbez/phpunit/phpunit-data-provider`:
-  - The hook reads `#[DataProvider]`, `#[DataProviderExternal]`, `#[DataProviderClosure]`, and `@dataProvider`. PHPUnit 12 removed doc-comment metadata, so `@dataProvider` is checked only when `PHPUnit\Metadata\Parser\AnnotationParser` exists in the analyzed codebase, which covers PHPUnit 10.5 and 11.5.
-  - Each row is checked against the test method signature for positional argument count, variadic parameters, missing required or unknown named arguments, yielded non-array values, and element types when both the parameter type and the row element type are concrete. For positional rows, same-class `#[Depends]` results count toward required parameters after the provider arguments. Passing `false` for `validateArgumentCount`, positionally or by name, suppresses only the extra-argument check.
-  - Provider bodies may return an array literal, return a local variable assigned a literal array once, `yield` rows, or `yield from` a literal array. Method providers are resolved on the test class, a parent test class in the same file, or an external class in the same file. Repeatable provider attributes and mixing `#[DataProvider]` with `#[DataProviderClosure]` on the same test method work.
-  - `#[DataProviderClosure]`, introduced in PHPUnit 13.1.0 in PHPUnit `#6526`, is checked only when `PHPUnit\Framework\Attributes\DataProviderClosure` exists in the analyzed codebase. The hook checks static closures without `use` whose body is a literal `return`, `yield`, or `yield from` of a literal array. Non-literal bodies and closures with `use` stay silent.
+- **`assertArrayHasKey()` narrowing.** Narrows the array argument when the key is a literal string or integer. Calls work through `$this`, `self::`, `static::`, `PHPUnit\Framework\Assert::`, or `PHPUnit\Framework\assertArrayHasKey()`. Non-literal keys are not narrowed, other keys stay uncertain, and nullable values remain nullable. Named-argument warnings from PHPUnit's `@no-named-arguments` annotations are preserved.
+- **`assertContainsOnlyInstancesOf()` narrowing (PHPUnit 10.5).** Narrows `$haystack` to `iterable<mixed, Foo>` when the first argument is a literal class string and the installed `Assert::assertContainsOnlyInstancesOf()` lacks `@phpstan-assert`. PHPUnit 11.5+ already declares `@phpstan-assert`, so this hook activates only on PHPUnit 10.5.
+- **`TestCase` property initialization.** Treats `setUp()` and `#[PHPUnit\Framework\Attributes\Before]` methods as class initializers on subclasses of `PHPUnit\Framework\TestCase`, including parent test classes, multiple `#[Before]` hooks, and helper methods called from initializers. Missing assignments, `#[After]`, unrelated attributes named `Before`, and non-`TestCase` classes retain their diagnostics.
+- **Data provider, `#[TestWith]`, and dependency validation (`alfredbez/phpunit/phpunit-data-provider`).**
+  - Supports `#[DataProvider]`, `#[DataProviderExternal]` (same-file and cross-file via `AfterAnalysisHook`), `#[DataProviderClosure]` (PHPUnit 13.1+), `#[TestWith]`, `#[TestWithJson]`, and `@dataProvider` (only when `PHPUnit\Metadata\Parser\AnnotationParser` exists, covering PHPUnit 10.5 and 11.5).
+  - Checks positional argument counts, variadic parameters, missing required or unknown named arguments, invalid JSON or non-array rows, and element types whenever both parameter and row types are concrete. Passing `false` for `validateArgumentCount` suppresses only the extra-argument check.
+  - On PHPUnit 10.5 (where `array_values()` strips string keys positionally), reconstructs literal multi-key array insertion order from the AST for providers, `#[TestWith]`, and `#[TestWithJson]` before comparing types; non-literal multi-key rows fall back to arity checks.
+  - Validates dependency return types for `#[Depends]`, `#[DependsExternal]`, and their `UsingDeepClone` / `UsingShallowClone` variants against the corresponding trailing test parameters (standalone or combined with providers and `#[TestWith]`). Respects PHPUnit 11.5+/12+ skipping `void` and `never` dependency return values via `PassedTests::hasReturnValue()`.
+  - Checks provider bodies returning an array literal, returning a local variable assigned a literal array once, `yield` rows, or `yield from` a literal array, plus repeatable provider attributes and static closures without `use` in `#[DataProviderClosure]`.
 
-`assertInstanceOf()`, `assertNull()`, `assertSame()`, `createMock()`, and `createStub()` are narrowed natively by Mago without an extension. PHPUnit 10.5 annotates the assertions with `@psalm-assert`, and PHPUnit 11.5 and later annotate them with `@phpstan-assert`.
+`assertInstanceOf()`, `assertNull()`, `assertSame()`, `createMock()`, and `createStub()` are narrowed natively by Mago using PHPUnit's `@psalm-assert` and `@phpstan-assert` annotations.
 
 ## Supported versions
 
-- PHP `~8.1.0 || ~8.2.0 || ~8.3.0 || ~8.4.0 || ~8.5.0 || ~8.6.0`, as declared in `composer.json`.
-- Mago `carthage-software/mago` `~1.60.2`.
-- PHPUnit `^10.5 || ^11.5 || ^12.0 || ^13.0`. This package does not require `phpunit/phpunit` at runtime so your application keeps its own PHPUnit constraint. CI runs the test suite against PHPUnit `^10.5`, `^11.5`, and `^12.0` on PHP 8.3, and against `^13.0` on PHP 8.4.
-- `#[DataProviderClosure]` requires PHPUnit 13.1.0 or later, PHP 8.5 at runtime for closures in constant expressions, and `php-version = "8.5"` in `mago.toml`.
+- PHP `~8.1.0 || ~8.2.0 || ~8.3.0 || ~8.4.0 || ~8.5.0 || ~8.6.0`
+- Mago (`carthage-software/mago`) `~1.60.2`
+- PHPUnit `^10.5 || ^11.5 || ^12.0 || ^13.0` (not required at runtime so applications keep their own PHPUnit constraint; CI tests `^10.5`, `^11.5`, and `^12.0` on PHP 8.3, and `^13.0` on PHP 8.4)
+- `#[DataProviderClosure]` requires PHPUnit 13.1.0+, PHP 8.5 at runtime, and `php-version = "8.5"` in `mago.toml`
 
-## Install and usage
+## Installation and worker setup
 
-`alfredbez/mago-phpunit` is not published on Packagist. There is no tagged release yet, so register the GitHub repository first and require `dev-main`:
+`alfredbez/mago-phpunit` is not published on Packagist yet. Register the GitHub repository and require `dev-main`:
 
 ```shell
 composer config repositories.mago-phpunit vcs https://github.com/alfredbez/mago-phpunit
 composer require --dev alfredbez/mago-phpunit:dev-main
 ```
 
-The extension follows Mago's worker model. This package exposes `AlfredBez\MagoPhpunit\PhpUnitExtension::create()`, and the application owns the worker entrypoint. Create `.mago/worker.php`:
+Create `.mago/worker.php`:
 
 ```php
 <?php
@@ -48,73 +49,54 @@ require dirname(__DIR__) . '/vendor/autoload.php';
 (new Worker(PhpUnitExtension::create()))->run();
 ```
 
-Several `Extension` instances can be passed to `new Worker(...)` when one project loads more than one extension.
-
 Register the worker host in `mago.toml`:
-
-```toml
-[extension-hosts.phpunit]
-command = ["php", ".mago/worker.php"]
-```
-
-`php` is resolved from `PATH`. The table name `phpunit` is only the local host name. Standard output belongs to the worker protocol.
-
-Property initialization checking is off in Mago unless enabled. Add it to `mago.toml` for `setUp()` initialization checks:
 
 ```toml
 [analyzer]
 check-property-initialization = true
+
+[extension-hosts.phpunit]
+command = ["php", ".mago/worker.php"]
 ```
 
-You do not need `class-initializers = ["setUp"]`. That setting treats every `setUp()` method as a constructor, whereas this extension restricts it to `TestCase` subclasses.
-
-When analyzing tests that use `#[DataProviderClosure]`, set the target PHP version in `mago.toml` so Mago permits static closures in attribute arguments:
-
-```toml
-php-version = "8.5"
-```
-
-Validate the extension host and run the analyzer:
+You do not need `class-initializers = ["setUp"]`, because this extension restricts `setUp()` initialization to `TestCase` subclasses. Validate the host and run the analyzer:
 
 ```shell
 vendor/bin/mago extension validate
 vendor/bin/mago analyze
 ```
 
-Run `vendor/bin/mago analyze --no-extensions` to analyze the same project without extensions.
+## Known limits (Mago 1.60.2)
 
-## Known gaps
+- `assertArrayHasKey()` ignores non-literal keys; `assertContainsOnlyInstancesOf()` ignores non-literal class names; `assertArrayNotHasKey()` is not covered.
+- Mago treats a property as initialized when `setUp()` assigns it on a reachable path, even behind a branch Mago cannot fold.
+- Non-literal provider bodies stay silent (`$rows[] = ...`, helper calls, non-literal `yield from`, open row shapes, nested callables, closures with `use`, and non-literal attribute arguments).
+- Arrow functions are invalid in PHP 8.5 constant expressions and are not checked in `#[DataProviderClosure]`.
+- Element and dependency types are checked only when both expected and provided types are concrete (non-`mixed`). Docblock `@depends` annotations are not parsed.
+- Passing `validateArgumentCount` on PHPUnit 10.5 or 11.5 triggers Mago's `too-many-arguments` (parameter added in PHPUnit 12). Passing named arguments to PHPUnit attributes triggers `named-argument-not-allowed` due to PHPUnit's `@no-named-arguments`.
 
-- `assertArrayHasKey()` ignores non-literal keys such as variables, expressions, and class constants.
-- `assertContainsOnlyInstancesOf()` ignores non-literal class names.
-- `assertArrayNotHasKey()` and other PHPUnit assertions that lack `@psalm-assert` or `@phpstan-assert` annotations are not covered.
-- Mago treats a property as initialized when `setUp()` assigns it on a reachable path. An assignment behind a condition that Mago cannot fold can suppress `uninitialized-property` even when another path leaves the property unset.
-- Provider methods in other files are not checked. Method lookup inspects only the current file.
-- Non-literal provider bodies stay silent. Lists built with `$rows[] = ...`, calls to helper methods or generators, non-literal `yield from` expressions, open row shapes, `return` or `yield` inside nested callables or anonymous classes, closures with `use`, and non-literal attribute arguments are skipped.
-- Arrow functions are not allowed in constant expressions in PHP 8.5 and are not checked in `#[DataProviderClosure]`.
-- Element types on rows are checked only when both the test parameter type and the row element type are known and neither is `mixed`.
-- Dependency-aware argument counting covers positional rows and `#[Depends]` only. Named rows combined with dependencies, other dependency attributes, and dependency annotations are not accounted for. The extension does not check the types of dependency results.
-- Passing `validateArgumentCount` to `#[DataProvider]` or `#[DataProviderExternal]` on PHPUnit 10.5 or 11.5 triggers Mago's `too-many-arguments` because that parameter was added in PHPUnit 12. Passing named arguments to PHPUnit attributes triggers Mago's `named-argument-not-allowed` because PHPUnit annotates those attribute classes with `@no-named-arguments`.
-
-## Tests
-
-Install dependencies and run the fixture suite:
+## Tests, corpus checks, and benchmarks
 
 ```shell
 composer install
+php tests/check-spec.php
 composer test
+vendor/bin/phpunit tests/runtime
 ```
 
-`composer test` runs `php tests/run.php`. That script validates the extension host and runs `vendor/bin/mago analyze` on `tests/fixtures` twice, once with the extension and once with `--no-extensions`, then checks exact issue codes, counts, and messages.
-
-To run the suite against a specific PHPUnit constraint from the version matrix, update `phpunit/phpunit` and run `composer test`:
+Run pinned OSS corpus snapshot checks (`phpunit`, `symfony`, `shopware`, `drupal`) against `tools/corpus-baseline.json`:
 
 ```shell
-composer update --no-interaction --prefer-dist --no-progress --with="phpunit/phpunit:^12.0"
-composer test
+php tools/corpus-run.php --check
+php tools/corpus-run.php --target=phpunit,symfony --check
+php tools/corpus-run.php --update-baseline
 ```
 
-GitHub Actions runs that sequence for `^10.5`, `^11.5`, and `^12.0` on PHP 8.3, and for `^13.0` on PHP 8.4.
+Run deterministic same-host local benchmarks (`--save` / `--compare`):
+
+```shell
+php bench/run-local.php --runs=5
+```
 
 ## License
 

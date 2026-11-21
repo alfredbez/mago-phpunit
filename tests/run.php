@@ -347,6 +347,11 @@ $expected[false]['tests/fixtures/DataProviderDeclarations.php'] = [
 $expected[true]['tests/fixtures/DataProviderDeclarations.php'] = [
     'alfredbez/phpunit/phpunit-data-provider' => 0,
 ];
+$expected[false]['tests/fixtures/MockExpectationContracts.php'] = [
+    'alfredbez/phpunit/phpunit-unknown-mocked-method' => 1,
+    'alfredbez/phpunit/phpunit-incompatible-mock-return' => 6,
+];
+$expected[true]['tests/fixtures/MockExpectationContracts.php'] = [];
 // PHPUnit 13.1 introduced #[DataProviderClosure]. Earlier versions report the missing attribute class,
 // and the extension adds no issues there.
 $closureProviderSupported = is_file('vendor/phpunit/phpunit/src/Framework/Attributes/DataProviderClosure.php');
@@ -895,6 +900,25 @@ foreach ([
     'Data provider class `AlfredBez\\MagoPhpunit\\Fixtures\\MissingExternalProviderClass` referenced by #[DataProviderExternal] on testMissingExternalClassLiteral() does not exist.' => 1,
 ] as $needle => $count) {
     $failures += assertMessageCount('with extension', $with, 'tests/fixtures/DataProviderDeclarations.php', $dataProvider, $needle, $count);
+}
+$incompatibleReturnCode = 'alfredbez/phpunit/phpunit-incompatible-mock-return';
+$failures += assertMessageCount(
+    'with extension',
+    $with,
+    'tests/fixtures/MockExpectationContracts.php',
+    $mockMethodCode,
+    'Trying to configure undefined method `AlfredBez\\MagoPhpunit\\Fixtures\\ConcreteBillingGateway::nonExistentBuilderMethod()` with MockBuilder::onlyMethods().',
+    1,
+);
+foreach ([
+    'Argument #1 of willReturn() provides `int` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::charge()`, whose declared return type is `string`.' => 1,
+    'Argument #1 of willReturn() provides `null` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::charge()`, whose declared return type is `string`.' => 1,
+    'Argument #1 of willReturn() provides `string` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::findCustomer()`, whose declared return type is `AlfredBez\\MagoPhpunit\\Fixtures\\BillingCustomer|null`.' => 1,
+    'Method `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::reset()` has return type `void` and cannot be configured with willReturn().' => 1,
+    'Argument #2 of willReturnOnConsecutiveCalls() provides `int` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::charge()`, whose declared return type is `string`.' => 1,
+    'Argument #1 of willReturn() provides `string` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::rate()`, whose declared return type is `float`.' => 1,
+] as $needle => $count) {
+    $failures += assertMessageCount('with extension', $with, 'tests/fixtures/MockExpectationContracts.php', $incompatibleReturnCode, $needle, $count);
 }
 foreach ($with as $issue) {
     if (

@@ -10,6 +10,7 @@ use AlfredBez\MagoPhpunit\Analyzer\Providers\ContainsOnlyInstancesAssertion;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\CoverageTargetsHook;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\DataProviderArguments;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\IntersectionMockReturnTypeProvider;
+use AlfredBez\MagoPhpunit\Analyzer\Providers\MockBuilderAndExpectationHook;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\MockMethodCallHook;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\PhpUnitFunctionAssertions;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\PhpUnitMethodAssertions;
@@ -44,6 +45,7 @@ final class PhpUnitPlugin implements Plugin
         $registry->registerClassLikeAnalysisHook($dataProviders);
         $registry->registerClassLikeAnalysisHook(new CoverageTargetsHook());
         $registry->registerMethodCallAnalysisHook(new MockMethodCallHook());
+        $registry->registerMethodCallAnalysisHook(new MockBuilderAndExpectationHook());
         $registry->registerAfterAnalysisHook($dataProviders);
     }
 }

@@ -2,3 +2,5 @@
 .phpunit.cache/
 /bench/fixtures/Batch*.php
 /bench/__pycache__/
+.corpus-cache/
+corpus-report.json

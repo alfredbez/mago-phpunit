@@ -26,6 +26,7 @@ use Mago\Sdk\Syntax\Node;
 use Mago\Sdk\Syntax\NodeKind;
 use Mago\Sdk\Syntax\SourceFile;
 use Mago\Sdk\Syntax\TriviaKind;
+use WeakMap;
 
 /**
  * Reports data-provider rows whose arity or argument types cannot match the test method.
@@ -45,6 +46,14 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
 
     /** PHPUnit 12 removed doc-comment metadata, so `@dataProvider` is only read where this class exists. */
     private const ANNOTATION_PARSER = 'PHPUnit\\Metadata\\Parser\\AnnotationParser';
+
+    /** @var WeakMap<SourceFile, array<string, array<string, Node>>> */
+    private WeakMap $methodsByFile;
+
+    public function __construct()
+    {
+        $this->methodsByFile = new WeakMap();
+    }
 
     public function getTargets(): array
     {
@@ -158,6 +167,10 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
      */
     private function methodsInFile(SourceFile $source): array
     {
+        if (isset($this->methodsByFile[$source])) {
+            return $this->methodsByFile[$source];
+        }
+
         $methods = [];
         foreach ($source->getNodes(NodeKind::Class_) as $classNode) {
             $className = null;
@@ -179,7 +192,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook
             }
         }
 
-        return $methods;
+        return $this->methodsByFile[$source] = $methods;
     }
 
     /**

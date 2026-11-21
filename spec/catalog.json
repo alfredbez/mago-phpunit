@@ -63,11 +63,11 @@
       "fixture": "<?php use PHPUnit\\Framework\\Assert; $a = ['k' => null]; Assert::assertArrayHasKey('k', $a); Assert::assertNull($a['k']);",
       "semantics": "A null-valued array entry is present. HasKey must not become HasNonnullEntryForKey.",
       "analyzer_expectation": "After the assertion, returning the nullable entry from a string-returning function remains invalid.",
-      "negative_control": "assertArrayNotHasKey('k', ['k' => null]) must fail. A nullable-return diagnostic must survive narrowing.",
+      "negative_control": "assertArrayNotHasKey('k', ['k' => null]) fails at runtime. Each of this/self/static/Assert method calls retains nullable-return and invalid-return diagnostics. Unasserted and unrelated offsets stay optional; disabling extensions restores all seven method-fixture offset warnings.",
       "priority": "P0",
-      "versions": "Function conformance and runtime checked across the cycle 001 matrix. Non-null mutation killed. A separate nullable method-call fixture remains untested.",
-      "coverage": ["tests/fixtures/HasKeyFunction.php", "tests/runtime/RuntimeContractTest.php", "tests/mutate-a003.php"],
-      "status": "partial"
+      "versions": "Method conformance verified on Mago 1.60.2 / PHP 8.4 / PHPUnit 12.5.40. Function conformance and runtime checked across the cycle 001 matrix. Existing HasKey implementation preserves nullability.",
+      "coverage": ["tests/fixtures/HasKeyNullable.php", "tests/fixtures/HasKeyFunction.php", "tests/run.php", "tests/runtime/RuntimeContractTest.php", "tests/mutate-a003.php"],
+      "status": "covered"
     },
     {
       "id": "PHPUNIT-A003",

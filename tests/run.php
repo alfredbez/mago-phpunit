@@ -55,6 +55,11 @@ $expected = [
             'possibly-undefined-int-array-index' => 2,
             'possibly-undefined-string-array-index' => 1,
         ],
+        'tests/fixtures/HasKeyNullable.php' => [
+            'possibly-undefined-string-array-index' => 2,
+            'nullable-return-statement' => 4,
+            'invalid-return-statement' => 4,
+        ],
         'tests/fixtures/SetUpPositive.php' => [
             'uninitialized-property' => 0,
         ],
@@ -96,6 +101,11 @@ $expected = [
             'possibly-undefined-string-array-index' => 2,
             'nullable-return-statement' => 5,
             'invalid-return-statement' => 5,
+        ],
+        'tests/fixtures/HasKeyNullable.php' => [
+            'possibly-undefined-string-array-index' => 7,
+            'nullable-return-statement' => 4,
+            'invalid-return-statement' => 4,
         ],
         'tests/fixtures/SetUpPositive.php' => [
             'uninitialized-property' => 1,
@@ -232,6 +242,11 @@ $expected[true]['tests/fixtures/DataProviderClosureCounter.php'] = $closureCount
 foreach ([false => 'with extension', true => '--no-extensions'] as $disabled => $label) {
     $issues = $disabled ? $without : $with;
     $failures += assertHistograms($label, $issues, $expected[$disabled]);
+    foreach (['This', 'Self', 'Static', 'Assert'] as $call) {
+        foreach (['nullable-return-statement', 'invalid-return-statement'] as $code) {
+            $failures += assertMessageCount($label, $issues, 'tests/fixtures/HasKeyNullable.php', $code, 'test' . $call . 'DoesNotExcludeNull', 1);
+        }
+    }
 }
 
 $failures += assertMessageCount(

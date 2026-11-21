@@ -8,6 +8,8 @@ use Mago\Sdk\Analyzer\Assertion\ArrayKeyAssertion;
 use Mago\Sdk\Analyzer\Assertion\ArrayKeyAssertionKind;
 use Mago\Sdk\Analyzer\Assertion\CountabilityAssertion;
 use Mago\Sdk\Analyzer\Assertion\CountabilityAssertionKind;
+use Mago\Sdk\Analyzer\Assertion\IntegerAssertion;
+use Mago\Sdk\Analyzer\Assertion\IntegerAssertionKind;
 use Mago\Sdk\Analyzer\Assertion\SimpleAssertion;
 use Mago\Sdk\Analyzer\Assertion\SimpleAssertionKind;
 use Mago\Sdk\Analyzer\Assertion\TypeAssertion;
@@ -42,6 +44,13 @@ final class PhpUnitMethodAssertions implements MethodAssertionProvider
         'assertContainsOnly',
         'assertStringContainsString',
         'assertStringContainsStringIgnoringCase',
+        'assertStringStartsWith',
+        'assertStringEndsWith',
+        'assertJson',
+        'assertGreaterThan',
+        'assertGreaterThanOrEqual',
+        'assertLessThan',
+        'assertLessThanOrEqual',
     ];
 
     public function getTargets(): array
@@ -65,6 +74,12 @@ final class PhpUnitMethodAssertions implements MethodAssertionProvider
             'assertnotempty' => $this->notEmptyAssertion($context),
             'assertcontainsonly' => $this->containsOnly($context),
             'assertstringcontainsstring', 'assertstringcontainsstringignoringcase' => $this->stringContainsString($context),
+            'assertstringstartswith', 'assertstringendswith' => $this->stringAffixAssertion($context),
+            'assertjson' => $this->jsonAssertion(),
+            'assertgreaterthan' => $this->integerComparisonAssertion($context, IntegerAssertionKind::IsGreaterThan, 'minimum'),
+            'assertgreaterthanorequal' => $this->integerComparisonAssertion($context, IntegerAssertionKind::IsGreaterThanOrEqual, 'minimum'),
+            'assertlessthan' => $this->integerComparisonAssertion($context, IntegerAssertionKind::IsLessThan, 'maximum'),
+            'assertlessthanorequal' => $this->integerComparisonAssertion($context, IntegerAssertionKind::IsLessThanOrEqual, 'maximum'),
             default => null,
         };
     }
@@ -176,6 +191,72 @@ final class PhpUnitMethodAssertions implements MethodAssertionProvider
                 ],
             ],
         );
+    }
+
+    private function stringAffixAssertion(AssertionProviderContext $context): ?InvocationAssertions
+    {
+        $affixType = $context->invocation->getArgument(0, 'prefix', 'suffix')?->type;
+        if (!$affixType instanceof Type || !self::isNonEmptyString($affixType)) {
+            return null;
+        }
+
+        return new InvocationAssertions(
+            assertions: [
+                '$string' => [
+                    new TypeAssertion(TypeAssertionKind::IsType, Type::nonEmptyString()),
+                ],
+            ],
+        );
+    }
+
+    private function jsonAssertion(): InvocationAssertions
+    {
+        return new InvocationAssertions(
+            assertions: [
+                '$actual' => [
+                    new TypeAssertion(TypeAssertionKind::IsType, Type::nonEmptyString()),
+                ],
+            ],
+        );
+    }
+
+    private function integerComparisonAssertion(
+        AssertionProviderContext $context,
+        IntegerAssertionKind $kind,
+        string $boundName,
+    ): ?InvocationAssertions {
+        $bound = $context->invocation->getArgument(0, $boundName)?->type?->getLiteralInt();
+        if ($bound === null) {
+            return null;
+        }
+
+        $actualType = $context->invocation->getArgument(1, 'actual')?->type;
+        if (!$actualType instanceof Type || !self::isPureInt($actualType)) {
+            return null;
+        }
+
+        return new InvocationAssertions(
+            assertions: [
+                '$actual' => [
+                    new IntegerAssertion($kind, $bound),
+                ],
+            ],
+        );
+    }
+
+    private static function isPureInt(Type $type): bool
+    {
+        if ($type->atomicTypes === []) {
+            return false;
+        }
+
+        foreach ($type->atomicTypes as $atomic) {
+            if (!$atomic instanceof ScalarType || $atomic->kind !== ScalarTypeKind::Integer) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static function literalKey(Type $type): ?ArrayKey

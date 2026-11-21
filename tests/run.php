@@ -352,6 +352,18 @@ $expected[false]['tests/fixtures/MockExpectationContracts.php'] = [
     'alfredbez/phpunit/phpunit-incompatible-mock-return' => 6,
 ];
 $expected[true]['tests/fixtures/MockExpectationContracts.php'] = [];
+$startsWithNonEmptyParam = str_contains(
+    (string) (new ReflectionMethod(\PHPUnit\Framework\Assert::class, 'assertStringStartsWith'))->getDocComment(),
+    'non-empty-string',
+);
+$expected[false]['tests/fixtures/Wave5Assertions.php'] = [
+    'invalid-return-statement' => 3,
+    'possibly-invalid-argument' => $startsWithNonEmptyParam ? 1 : 0,
+];
+$expected[true]['tests/fixtures/Wave5Assertions.php'] = [
+    'invalid-return-statement' => 15,
+    'possibly-invalid-argument' => $startsWithNonEmptyParam ? 1 : 0,
+];
 // PHPUnit 13.1 introduced #[DataProviderClosure]. Earlier versions report the missing attribute class,
 // and the extension adds no issues there.
 $closureProviderSupported = is_file('vendor/phpunit/phpunit/src/Framework/Attributes/DataProviderClosure.php');

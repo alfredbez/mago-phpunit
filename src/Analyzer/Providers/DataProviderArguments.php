@@ -14,22 +14,33 @@ use Mago\Sdk\Analyzer\FileAnalysis;
 use Mago\Sdk\Analyzer\FileAnalysisRequirement;
 use Mago\Sdk\Analyzer\LifecycleContext;
 use Mago\Sdk\Analyzer\Metadata\AttributeMetadata;
+use Mago\Sdk\Analyzer\Metadata\MemberIdentifier;
 use Mago\Sdk\Analyzer\Metadata\MetadataFlags;
 use Mago\Sdk\Analyzer\Metadata\MethodFields;
 use Mago\Sdk\Analyzer\Metadata\ParameterMetadata;
 use Mago\Sdk\Analyzer\NodeAnalysisContext;
 use Mago\Sdk\Analyzer\Type;
+use Mago\Sdk\Analyzer\Type\AnyObjectType;
 use Mago\Sdk\Analyzer\Type\ArrayItem;
 use Mago\Sdk\Analyzer\Type\ArrayKey;
 use Mago\Sdk\Analyzer\Type\ArrayKeyKind;
+use Mago\Sdk\Analyzer\Type\FloatType;
+use Mago\Sdk\Analyzer\Type\FloatTypeKind;
+use Mago\Sdk\Analyzer\Type\IntegerType;
+use Mago\Sdk\Analyzer\Type\IntegerTypeKind;
+use Mago\Sdk\Analyzer\Type\IterableType;
 use Mago\Sdk\Analyzer\Type\KeyedArrayType;
 use Mago\Sdk\Analyzer\Type\ListElement;
 use Mago\Sdk\Analyzer\Type\ListType;
 use Mago\Sdk\Analyzer\Type\MixedType;
+use Mago\Sdk\Analyzer\Type\NamedObjectType;
 use Mago\Sdk\Analyzer\Type\ScalarType;
 use Mago\Sdk\Analyzer\Type\ScalarTypeKind;
 use Mago\Sdk\Analyzer\Type\SimpleAtomicType;
 use Mago\Sdk\Analyzer\Type\SimpleAtomicTypeKind;
+use Mago\Sdk\Analyzer\Type\StringCasing;
+use Mago\Sdk\Analyzer\Type\StringLiteralKind;
+use Mago\Sdk\Analyzer\Type\StringType;
 use Mago\Sdk\Reporting\Issue;
 use Mago\Sdk\Reporting\Level;
 use Mago\Sdk\SourceLocation;
@@ -83,6 +94,34 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
     /** @var WeakMap<SourceFile, array<int, list<array{type: Type, span: Span, label: string, keyOrder: ?list<string>}>>> */
     private WeakMap $providerRowsByFile;
 
+    /** @var array<string, array<string, array{file: string, label: string, rows: list<array{type: Type, span: Span, label: string, keyOrder: ?list<string>}>}>> */
+    private array $providerRowsByMethod = [];
+
+    /**
+     * @var list<array{
+     *     testFile: string,
+     *     testLabel: string,
+     *     providerClass: string,
+     *     providerMethod: string,
+     *     validateCount: bool,
+     *     schema: array{
+     *         required: int,
+     *         accepted: int,
+     *         variadic: bool,
+     *         names: list<string>,
+     *         requiredNames: list<string>,
+     *         positional: list<array{name: string, type: ?Type}>,
+     *         named: array<string, ?Type>,
+     *         variadicParameter: ?array{name: string, type: ?Type},
+     *         dependencies: int,
+     *     },
+     *     dependencies: list<array{class: ?string, method: ?string, span: Span, external: bool}>,
+     * }>
+     */
+    private array $pendingExternalProviders = [];
+
+    private bool $sawAnalyzeCall = false;
+
     public function __construct()
     {
         $this->methodsByFile = new WeakMap();
@@ -107,6 +146,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
 
     public function analyze(NodeAnalysisContext $context): void
     {
+        $this->sawAnalyzeCall = true;
         $contents = $context->source->contents;
         if (
             stripos($contents, 'dataprovider') === false
@@ -116,42 +156,104 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
             return;
         }
 
-        $className = $this->testCaseName($context);
+        $className = $this->classNodeName($context->source, $context->node);
         if ($className === null) {
             return;
         }
 
-        $source = $context->analysis->getSourceFile();
-        $methods = $this->methodsInFile($source);
-        $declared = $context->codebase->getClass($className);
-        if ($declared === null) {
+        $source = $context->source;
+        $classMethods = $this->methodsInClass($source, $context->node);
+        if ($classMethods === []) {
             return;
         }
 
-        foreach ($declared->methods as $methodName) {
-            $node = $methods[strtolower($className)][strtolower($methodName)] ?? null;
-            if ($node === null) {
-                continue;
+        $supportsDocblock = PhpUnitVersion::supportsDocblockMetadata($context->codebase);
+        $supportsClosure = PhpUnitVersion::supportsDataProviderClosure($context->codebase);
+        $needsKeyOrder = !PhpUnitVersion::supportsNamedProviderArguments($context->codebase);
+        $fileHasParamDocblock = stripos($contents, '@param') !== false;
+        $lowerClassName = strtolower($className);
+        $workItems = [];
+        $methodQueries = [];
+        foreach ($classMethods as $methodKey => $entry) {
+            $node = $entry['node'];
+            if (!$supportsDocblock) {
+                $attrPos = strpos($contents, '#[', $node->span->start);
+                if ($attrPos === false || $attrPos >= $node->span->end) {
+                    continue;
+                }
             }
-
-            $providers = $this->providerReferences($context, $source, $node, $className);
-            $hasTestWith = $this->hasTestWithAttribute($source, $node);
-            $dependencies = $this->dependencyReferences($context, $source, $node, $className);
+            [$providers, $hasTestWith, $dependencies] = $this->extractMethodAnnotations(
+                $context,
+                $source,
+                $node,
+                $className,
+                $supportsClosure,
+                $supportsDocblock,
+            );
             if ($providers === [] && !$hasTestWith && $dependencies === []) {
                 continue;
             }
 
-            $test = $context->codebase->getMethod($className, $methodName);
-            if ($test === null) {
-                continue;
+            $astSchemaBase = null;
+            if (!$hasTestWith) {
+                $hasParamDoc = $fileHasParamDocblock
+                    && stripos($this->attachedDocblock($source, $node) ?? '', '@param') !== false;
+                if (!$hasParamDoc) {
+                    $astSchemaBase = $this->astParameterSchema($source, $node, 0);
+                }
             }
 
-            $testLabel = $this->methodLabel($source, $node);
-            $effectiveDependencies = $this->valuePassingDependencies($context, $dependencies);
-            $schema = $this->parameterSchema($test->parameters, count($effectiveDependencies));
+            $workItems[] = [
+                'methodKey' => $methodKey,
+                'label' => $entry['label'],
+                'node' => $node,
+                'providers' => $providers,
+                'hasTestWith' => $hasTestWith,
+                'dependencies' => $dependencies,
+                'astSchema' => $astSchemaBase,
+            ];
+            if ($astSchemaBase === null) {
+                $methodQueries[$lowerClassName . "\0" . $methodKey] = new MemberIdentifier($className, $entry['label']);
+            }
+            foreach ($dependencies as $dependency) {
+                if ($dependency['class'] !== null && $dependency['method'] !== null) {
+                    $depKey = strtolower($dependency['class']) . "\0" . strtolower($dependency['method']);
+                    $methodQueries[$depKey] ??= new MemberIdentifier($dependency['class'], $dependency['method']);
+                }
+            }
+        }
+
+        if ($workItems === []) {
+            return;
+        }
+
+        if ($methodQueries !== []) {
+            $context->codebase->getMultipleMethods(array_values($methodQueries));
+        }
+
+        $fullSource = null;
+        $fileMethods = null;
+        foreach ($workItems as $item) {
+            $testLabel = $item['label'];
+            $effectiveDependencies = $this->valuePassingDependencies($context, $item['dependencies']);
+            $test = null;
+            if ($item['astSchema'] !== null) {
+                $schema = $item['astSchema'];
+                $depCount = count($effectiveDependencies);
+                if ($depCount > 0) {
+                    $schema['dependencies'] = $depCount;
+                    $schema['required'] = max(0, $schema['required'] - $depCount);
+                }
+            } else {
+                $test = $context->codebase->getMethod($className, $item['label']);
+                if ($test === null) {
+                    continue;
+                }
+                $schema = $this->parameterSchema($test->parameters, count($effectiveDependencies));
+            }
             $checkedDepOffsets = [];
 
-            if ($providers === [] && !$hasTestWith) {
+            if ($item['providers'] === [] && !$item['hasTestWith']) {
                 $this->checkDependencyTypes(
                     $context,
                     $context->analysis->file,
@@ -164,39 +266,81 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                 continue;
             }
 
-            foreach ($providers as $provider) {
-                $providerNode = $provider['node'] ?? $this->locateMethod($context, $methods, $provider['class'], $provider['method']);
+            foreach ($item['providers'] as $provider) {
+                $providerSource = $source;
+                $providerClassKey = strtolower($provider['class']);
+                $providerMethodKey = strtolower($provider['method']);
+                if ($provider['node'] !== null) {
+                    $providerNode = $provider['node'];
+                } elseif ($providerClassKey === $lowerClassName && isset($classMethods[$providerMethodKey])) {
+                    $providerNode = $classMethods[$providerMethodKey]['node'];
+                } else {
+                    $providerNode = null;
+                    if (stripos($contents, 'function ' . $provider['method']) !== false) {
+                        if ($fullSource === null) {
+                            $fullSource = $context->analysis->getSourceFile();
+                            $fileMethods = $this->methodsInFile($fullSource);
+                        }
+                        $providerSource = $fullSource;
+                        $providerNode = $this->locateMethod($context, $fileMethods, $provider['class'], $provider['method']);
+                    }
+                    if ($providerNode === null && $provider['external']) {
+                        $this->pendingExternalProviders[] = [
+                            'testFile' => $context->analysis->file,
+                            'testLabel' => $testLabel,
+                            'providerClass' => $provider['class'],
+                            'providerMethod' => $provider['method'],
+                            'validateCount' => $provider['validateCount'],
+                            'schema' => $schema,
+                            'dependencies' => $effectiveDependencies,
+                        ];
+                    }
+                }
+
                 if ($providerNode === null) {
                     continue;
                 }
 
-                $providerLabel = $provider['node'] !== null ? 'closure' : $this->methodLabel($source, $providerNode);
-                $this->checkProvider(
-                    $context,
-                    $context->analysis,
-                    $context->analysis->file,
-                    $source,
-                    $providerNode,
-                    $testLabel,
-                    'Data provider ' . $providerLabel . '()',
-                    $schema,
-                    $provider['validateCount'],
-                    $effectiveDependencies,
-                    $checkedDepOffsets,
-                );
+                $providerLabel = $provider['node'] !== null ? 'closure' : $this->methodLabel($providerSource, $providerNode);
+                $rows = $this->extractProviderRows($context->analysis, $providerSource, $providerNode, $needsKeyOrder);
+                if ($provider['node'] === null) {
+                    $this->providerRowsByMethod[$providerClassKey][$providerMethodKey] = [
+                        'file' => $context->analysis->file,
+                        'label' => $providerLabel,
+                        'rows' => $rows,
+                    ];
+                }
+                foreach ($rows as $row) {
+                    $this->checkRow(
+                        $context,
+                        $context->analysis->file,
+                        $context->analysis->file,
+                        $row['type'],
+                        $row['span'],
+                        $row['label'],
+                        $testLabel,
+                        'Data provider ' . $providerLabel . '()',
+                        $schema,
+                        $provider['validateCount'],
+                        $effectiveDependencies,
+                        $checkedDepOffsets,
+                        $row['keyOrder'],
+                    );
+                }
             }
 
-            if ($hasTestWith) {
+            if ($item['hasTestWith'] && $test !== null) {
                 $this->checkTestWithAttributes(
                     $context,
                     $context->analysis->file,
                     $source,
-                    $node,
+                    $item['node'],
                     $test->attributes,
                     $testLabel,
                     $schema,
                     $effectiveDependencies,
                     $checkedDepOffsets,
+                    $needsKeyOrder,
                 );
             }
         }
@@ -204,6 +348,84 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
 
     public function afterAnalysis(AfterAnalysisContext $context): void
     {
+        $needsKeyOrder = !PhpUnitVersion::supportsNamedProviderArguments($context->codebase);
+
+        if ($this->sawAnalyzeCall) {
+            if ($this->pendingExternalProviders === []) {
+                return;
+            }
+
+            $pending = $this->pendingExternalProviders;
+            $this->pendingExternalProviders = [];
+
+            $uncachedQueries = [];
+            foreach ($pending as $entry) {
+                $classKey = strtolower($entry['providerClass']);
+                $methodKey = strtolower($entry['providerMethod']);
+                if (!isset($this->providerRowsByMethod[$classKey][$methodKey])) {
+                    $uncachedQueries[$classKey . "\0" . $methodKey] = new MemberIdentifier($entry['providerClass'], $entry['providerMethod']);
+                }
+            }
+            if ($uncachedQueries !== []) {
+                $context->codebase->getMultipleDeclaringMethods(array_values($uncachedQueries));
+            }
+
+            foreach ($pending as $entry) {
+                $classKey = strtolower($entry['providerClass']);
+                $methodKey = strtolower($entry['providerMethod']);
+                $cached = $this->providerRowsByMethod[$classKey][$methodKey] ?? null;
+
+                if ($cached === null) {
+                    $declaring = $context->codebase->getDeclaringMethod($entry['providerClass'], $entry['providerMethod']);
+                    if ($declaring === null || $declaring->location->file === $entry['testFile']) {
+                        continue;
+                    }
+
+                    $providerAnalysis = $context->analysis->getFile($declaring->location->file);
+                    if ($providerAnalysis === null) {
+                        continue;
+                    }
+
+                    $providerSource = $providerAnalysis->getSourceFile();
+                    $providerMethods = $this->methodsInFile($providerSource);
+                    $declaringClass = $declaring->identifier->class ?? $entry['providerClass'];
+                    $providerNode = $this->locateMethod($context, $providerMethods, $declaringClass, $declaring->originalName);
+                    if ($providerNode === null) {
+                        continue;
+                    }
+
+                    $providerLabel = $this->methodLabel($providerSource, $providerNode);
+                    $cached = [
+                        'file' => $providerAnalysis->file,
+                        'label' => $providerLabel,
+                        'rows' => $this->extractProviderRows($providerAnalysis, $providerSource, $providerNode, $needsKeyOrder),
+                    ];
+                    $this->providerRowsByMethod[$classKey][$methodKey] = $cached;
+                }
+
+                $checkedDepOffsets = [];
+                foreach ($cached['rows'] as $row) {
+                    $this->checkRow(
+                        $context,
+                        $cached['file'],
+                        $entry['testFile'],
+                        $row['type'],
+                        $row['span'],
+                        $row['label'],
+                        $entry['testLabel'],
+                        'Data provider ' . $cached['label'] . '()',
+                        $entry['schema'],
+                        $entry['validateCount'],
+                        $entry['dependencies'],
+                        $checkedDepOffsets,
+                        $row['keyOrder'],
+                    );
+                }
+            }
+
+            return;
+        }
+
         $methods = $context->codebase->findMethods(
             descendantsOf: 'PHPUnit\\Framework\\TestCase',
             withAnyAttribute: ['PHPUnit\\Framework\\Attributes\\DataProviderExternal'],
@@ -273,59 +495,190 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                     $validateCount,
                     $dependencies,
                     $checkedDepOffsets,
+                    $needsKeyOrder,
                 );
             }
         }
     }
 
     /**
-     * @return list<array{class: ?string, method: ?string, span: Span, external: bool}>
+     * Single-pass extraction of data providers, TestWith presence, and method dependencies on one method node.
+     *
+     * @return array{
+     *     0: list<array{class: string, method: string, node: ?Node, validateCount: bool, external: bool}>,
+     *     1: bool,
+     *     2: list<array{class: ?string, method: ?string, span: Span, external: bool}>,
+     * }
      */
-    private function dependencyReferences(NodeAnalysisContext $context, SourceFile $source, Node $method, string $className): array
-    {
+    private function extractMethodAnnotations(
+        NodeAnalysisContext $context,
+        SourceFile $source,
+        Node $method,
+        string $className,
+        bool $supportsClosure,
+        bool $supportsDocblock,
+    ): array {
+        $providers = [];
+        $hasTestWith = false;
         $dependencies = [];
-        foreach ($source->getChildren($method) as $list) {
-            if ($list->kind !== NodeKind::AttributeList) {
+
+        foreach ($source->getChildren($method) as $attributeList) {
+            if ($attributeList->kind !== NodeKind::AttributeList) {
                 continue;
             }
-            foreach ($source->getChildren($list) as $attribute) {
+
+            foreach ($source->getChildren($attributeList) as $attribute) {
                 if ($attribute->kind !== NodeKind::Attribute) {
                     continue;
                 }
-                $name = strtolower($this->attributeName($source, $attribute) ?? '');
-                if (!isset(self::METHOD_DEPENDENCY_ATTRIBUTES[$name])) {
+
+                $name = $this->attributeName($source, $attribute);
+                if ($name === null) {
                     continue;
                 }
 
-                $arguments = $this->attributeArguments($source, $attribute);
-                if (isset(self::SAME_CLASS_DEPENDENCY_ATTRIBUTES[$name])) {
-                    $depMethod = $this->literalString(
+                $normalized = strtolower($name);
+                if ($normalized === self::TEST_WITH || $normalized === self::TEST_WITH_JSON) {
+                    $hasTestWith = true;
+                    continue;
+                }
+
+                if (isset(self::METHOD_DEPENDENCY_ATTRIBUTES[$normalized])) {
+                    $arguments = $this->attributeArguments($source, $attribute);
+                    if (isset(self::SAME_CLASS_DEPENDENCY_ATTRIBUTES[$normalized])) {
+                        $depMethod = $this->literalString(
+                            $source,
+                            $this->attributeArgument($source, $arguments, 0, 'methodName'),
+                        );
+                        $dependencies[] = [
+                            'class' => $depMethod !== null && $depMethod !== '' ? $className : null,
+                            'method' => $depMethod !== null && $depMethod !== '' ? $depMethod : null,
+                            'span' => $attribute->span,
+                            'external' => false,
+                        ];
+                        continue;
+                    }
+
+                    $classArg = $this->attributeArgument($source, $arguments, 0, 'className');
+                    $methodArg = $this->attributeArgument($source, $arguments, 1, 'methodName');
+                    $depClass = $classArg !== null ? $this->referencedClass($context, $source, $classArg) : null;
+                    $depMethod = $this->literalString($source, $methodArg);
+                    $dependencies[] = [
+                        'class' => $depClass,
+                        'method' => $depMethod !== null && $depMethod !== '' ? $depMethod : null,
+                        'span' => $attribute->span,
+                        'external' => true,
+                    ];
+                    continue;
+                }
+
+                if ($normalized === self::DATA_PROVIDER) {
+                    $arguments = $this->attributeArguments($source, $attribute);
+                    $provider = $this->literalString(
                         $source,
                         $this->attributeArgument($source, $arguments, 0, 'methodName'),
                     );
-                    $dependencies[] = [
-                        'class' => $depMethod !== null && $depMethod !== '' ? $className : null,
-                        'method' => $depMethod !== null && $depMethod !== '' ? $depMethod : null,
-                        'span' => $attribute->span,
+                    if ($provider === null || $provider === '') {
+                        continue;
+                    }
+
+                    $providers[] = [
+                        'class' => $className,
+                        'method' => $provider,
+                        'node' => null,
+                        'validateCount' => $this->validateArgumentCount(
+                            $source,
+                            $this->attributeArgument($source, $arguments, 1, 'validateArgumentCount'),
+                        ),
                         'external' => false,
                     ];
                     continue;
                 }
 
-                $classArg = $this->attributeArgument($source, $arguments, 0, 'className');
-                $methodArg = $this->attributeArgument($source, $arguments, 1, 'methodName');
-                $depClass = $classArg !== null ? $this->referencedClass($context, $source, $classArg) : null;
-                $depMethod = $this->literalString($source, $methodArg);
-                $dependencies[] = [
-                    'class' => $depClass,
-                    'method' => $depMethod !== null && $depMethod !== '' ? $depMethod : null,
-                    'span' => $attribute->span,
-                    'external' => true,
-                ];
+                if ($normalized === self::DATA_PROVIDER_CLOSURE) {
+                    if (!$supportsClosure) {
+                        continue;
+                    }
+
+                    $arguments = $this->attributeArguments($source, $attribute);
+                    $closure = $this->closureArgument(
+                        $source,
+                        $this->attributeArgument($source, $arguments, 0, 'closure'),
+                    );
+                    if ($closure === null) {
+                        continue;
+                    }
+
+                    $providers[] = [
+                        'class' => '',
+                        'method' => '',
+                        'node' => $closure,
+                        'validateCount' => $this->validateArgumentCount(
+                            $source,
+                            $this->attributeArgument($source, $arguments, 1, 'validateArgumentCount'),
+                        ),
+                        'external' => false,
+                    ];
+                    continue;
+                }
+
+                if ($normalized === self::DATA_PROVIDER_EXTERNAL) {
+                    $arguments = $this->attributeArguments($source, $attribute);
+                    $classArgument = $this->attributeArgument($source, $arguments, 0, 'className');
+                    $methodArgument = $this->attributeArgument($source, $arguments, 1, 'methodName');
+                    if ($classArgument === null || $methodArgument === null) {
+                        continue;
+                    }
+
+                    $providerClass = $this->referencedClass($context, $source, $classArgument);
+                    $provider = $this->literalString($source, $methodArgument);
+                    if ($providerClass === null || $provider === null || $provider === '') {
+                        continue;
+                    }
+
+                    $providers[] = [
+                        'class' => $providerClass,
+                        'method' => $provider,
+                        'node' => null,
+                        'validateCount' => $this->validateArgumentCount(
+                            $source,
+                            $this->attributeArgument($source, $arguments, 2, 'validateArgumentCount'),
+                        ),
+                        'external' => true,
+                    ];
+                }
             }
         }
 
-        return $dependencies;
+        if ($supportsDocblock) {
+            $docblock = $this->attachedDocblock($source, $method);
+            if ($docblock !== null && stripos($docblock, '@dataProvider') !== false) {
+                $matched = preg_match_all(
+                    '/^[ \t]*\*?[ \t]*@dataProvider[ \t]+(\\\\?[A-Za-z_\x80-\xff][A-Za-z0-9_\x80-\xff\\\\]*)(?:::([A-Za-z_\x80-\xff][A-Za-z0-9_\x80-\xff]*))?/m',
+                    $docblock,
+                    $matches,
+                    PREG_SET_ORDER,
+                );
+                if ($matched !== false) {
+                    foreach ($matches as $match) {
+                        $resolved = $this->docblockProvider($context, $className, $match[1], $match[2] ?? '');
+                        if ($resolved === null) {
+                            continue;
+                        }
+
+                        $providers[] = [
+                            'class' => $resolved['class'],
+                            'method' => $resolved['method'],
+                            'node' => null,
+                            'validateCount' => true,
+                            'external' => false,
+                        ];
+                    }
+                }
+            }
+        }
+
+        return [$providers, $hasTestWith, $dependencies];
     }
 
     /**
@@ -485,52 +838,38 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
         }
     }
 
-    private function hasTestWithAttribute(SourceFile $source, Node $method): bool
+    private function classNodeName(SourceFile $source, Node $classNode): ?string
     {
-        foreach ($source->getChildren($method) as $list) {
-            if ($list->kind !== NodeKind::AttributeList) {
-                continue;
-            }
-            foreach ($source->getChildren($list) as $attribute) {
-                if ($attribute->kind !== NodeKind::Attribute) {
-                    continue;
-                }
-                $name = strtolower($this->attributeName($source, $attribute) ?? '');
-                if ($name === self::TEST_WITH || $name === self::TEST_WITH_JSON) {
-                    return true;
-                }
-            }
-        }
-
-        return false;
-    }
-
-    private function testCaseName(NodeAnalysisContext $context): ?string
-    {
-        foreach ($context->source->getChildren($context->node) as $child) {
+        foreach ($source->getChildren($classNode) as $child) {
             if ($child->kind !== NodeKind::LocalIdentifier) {
                 continue;
             }
 
-            $resolved = $context->source->getResolvedName($child);
-            if ($resolved === null) {
-                return null;
-            }
-
-            $class = $context->codebase->getClass($resolved->name);
-            if ($class === null) {
-                return null;
-            }
-
-            $parents = array_map(strtolower(...), $class->parentClasses);
-            if (!in_array(self::TEST_CASE, $parents, true)) {
-                return null;
-            }
-
-            return $resolved->name;
+            return $source->getResolvedName($child)?->name;
         }
 
         return null;
+    }
+
+    /**
+     * @return array<string, array{label: string, node: Node}>
+     */
+    private function methodsInClass(SourceFile $source, Node $classNode): array
+    {
+        $methods = [];
+        foreach ($source->getChildren($classNode) as $member) {
+            $method = $member->kind === NodeKind::Method
+                ? $member
+                : ($member->kind === NodeKind::ClassLikeMember ? ($source->getChildren($member)[0] ?? null) : null);
+            if ($method === null || $method->kind !== NodeKind::Method) {
+                continue;
+            }
+
+            $label = $this->methodLabel($source, $method);
+            $methods[strtolower($label)] = ['label' => $label, 'node' => $method];
+        }
+
+        return $methods;
     }
 
     /**
@@ -597,139 +936,6 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
     }
 
     /**
-     * @return list<array{class: string, method: string, node: ?Node, validateCount: bool}>
-     */
-    private function providerReferences(NodeAnalysisContext $context, SourceFile $source, Node $method, string $className): array
-    {
-        $references = [];
-        foreach ($source->getChildren($method) as $attributeList) {
-            if ($attributeList->kind !== NodeKind::AttributeList) {
-                continue;
-            }
-
-            foreach ($source->getChildren($attributeList) as $attribute) {
-                if ($attribute->kind !== NodeKind::Attribute) {
-                    continue;
-                }
-
-                $name = $this->attributeName($source, $attribute);
-                if ($name === null) {
-                    continue;
-                }
-
-                $normalized = strtolower($name);
-                $arguments = $this->attributeArguments($source, $attribute);
-                if ($normalized === self::DATA_PROVIDER) {
-                    $provider = $this->literalString(
-                        $source,
-                        $this->attributeArgument($source, $arguments, 0, 'methodName'),
-                    );
-                    if ($provider === null || $provider === '') {
-                        continue;
-                    }
-
-                    $references[] = [
-                        'class' => $className,
-                        'method' => $provider,
-                        'node' => null,
-                        'validateCount' => $this->validateArgumentCount(
-                            $source,
-                            $this->attributeArgument($source, $arguments, 1, 'validateArgumentCount'),
-                        ),
-                    ];
-                    continue;
-                }
-
-                if ($normalized === self::DATA_PROVIDER_CLOSURE) {
-                    if (!PhpUnitVersion::supportsDataProviderClosure($context->codebase)) {
-                        continue;
-                    }
-
-                    $closure = $this->closureArgument(
-                        $source,
-                        $this->attributeArgument($source, $arguments, 0, 'closure'),
-                    );
-                    if ($closure === null) {
-                        continue;
-                    }
-
-                    $references[] = [
-                        'class' => '',
-                        'method' => '',
-                        'node' => $closure,
-                        'validateCount' => $this->validateArgumentCount(
-                            $source,
-                            $this->attributeArgument($source, $arguments, 1, 'validateArgumentCount'),
-                        ),
-                    ];
-                    continue;
-                }
-
-                if ($normalized !== self::DATA_PROVIDER_EXTERNAL) {
-                    continue;
-                }
-
-                $classArgument = $this->attributeArgument($source, $arguments, 0, 'className');
-                $methodArgument = $this->attributeArgument($source, $arguments, 1, 'methodName');
-                if ($classArgument === null || $methodArgument === null) {
-                    continue;
-                }
-
-                $providerClass = $this->referencedClass($context, $source, $classArgument);
-                $provider = $this->literalString($source, $methodArgument);
-                if ($providerClass === null || $provider === null || $provider === '') {
-                    continue;
-                }
-
-                $references[] = [
-                    'class' => $providerClass,
-                    'method' => $provider,
-                    'node' => null,
-                    'validateCount' => $this->validateArgumentCount(
-                        $source,
-                        $this->attributeArgument($source, $arguments, 2, 'validateArgumentCount'),
-                    ),
-                ];
-            }
-        }
-
-        if (!PhpUnitVersion::supportsDocblockMetadata($context->codebase)) {
-            return $references;
-        }
-
-        $docblock = $this->attachedDocblock($source, $method);
-        if ($docblock === null) {
-            return $references;
-        }
-
-        $matched = preg_match_all(
-            '/^[ \t]*\*?[ \t]*@dataProvider[ \t]+(\\\\?[A-Za-z_\x80-\xff][A-Za-z0-9_\x80-\xff\\\\]*)(?:::([A-Za-z_\x80-\xff][A-Za-z0-9_\x80-\xff]*))?/m',
-            $docblock,
-            $matches,
-            PREG_SET_ORDER,
-        );
-        if ($matched === false) {
-            return $references;
-        }
-
-        foreach ($matches as $match) {
-            $resolved = $this->docblockProvider($context, $className, $match[1], $match[2] ?? '');
-            if ($resolved === null) {
-                continue;
-            }
-
-            $references[] = [
-                'class' => $resolved['class'],
-                'method' => $resolved['method'],
-                'node' => null,
-                'validateCount' => true,
-            ];
-        }
-
-        return $references;
-    }
-
-    /**
      * @return array{class: string, method: string}|null
      */
     private function docblockProvider(NodeAnalysisContext $context, string $testClass, string $target, string $method): ?array
@@ -779,8 +985,9 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
         bool $validateCount,
         array $dependencies,
         array &$checkedDepOffsets,
+        bool $needsKeyOrder = false,
     ): void {
-        foreach ($this->extractProviderRows($analysis, $source, $provider) as $row) {
+        foreach ($this->extractProviderRows($analysis, $source, $provider, $needsKeyOrder) as $row) {
             $this->checkRow(
                 $context,
                 $analysis->file,
@@ -802,7 +1009,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
     /**
      * @return list<array{type: Type, span: Span, label: string, keyOrder: ?list<string>}>
      */
-    private function extractProviderRows(FileAnalysis $analysis, SourceFile $source, Node $provider): array
+    private function extractProviderRows(FileAnalysis $analysis, SourceFile $source, Node $provider, bool $needsKeyOrder = false): array
     {
         $cached = $this->providerRowsByFile[$source] ?? [];
         if (isset($cached[$provider->id])) {
@@ -827,7 +1034,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                         continue;
                     }
 
-                    foreach ($this->rowsFromCollection($source, $collection, $type) as $row) {
+                    foreach ($this->rowsFromCollection($source, $collection, $type, $needsKeyOrder) as $row) {
                         $rows[] = $row;
                     }
 
@@ -848,7 +1055,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                     'type' => $type,
                     'span' => $expression->span,
                     'label' => '#' . $index,
-                    'keyOrder' => $this->literalStringKeyOrder($source, $expression),
+                    'keyOrder' => $needsKeyOrder ? $this->literalStringKeyOrder($source, $expression) : null,
                 ];
             }
 
@@ -873,7 +1080,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                 continue;
             }
 
-            foreach ($this->rowsFromCollection($source, $expression, $type) as $row) {
+            foreach ($this->rowsFromCollection($source, $expression, $type, $needsKeyOrder) as $row) {
                 $rows[] = $row;
             }
         }
@@ -910,8 +1117,9 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
         array $schema,
         array $dependencies,
         array &$checkedDepOffsets,
+        bool $needsKeyOrder = false,
     ): void {
-        $testWithDataNodes = $this->testWithDataArgumentNodes($source, $methodNode);
+        $testWithDataNodes = $needsKeyOrder ? $this->testWithDataArgumentNodes($source, $methodNode) : [];
         $index = 0;
         $testWithIndex = 0;
         foreach ($attributes as $attribute) {
@@ -935,7 +1143,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                 }
 
                 $span = $dataArg->valueLocation?->span ?? $attribute->location->span;
-                $keyOrder = $dataNode !== null ? $this->literalStringKeyOrder($source, $dataNode) : null;
+                $keyOrder = ($needsKeyOrder && $dataNode !== null) ? $this->literalStringKeyOrder($source, $dataNode) : null;
                 $this->checkRow(
                     $context,
                     $reportFile,
@@ -1063,7 +1271,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
     /**
      * @return list<array{type: Type, span: Span, label: string, keyOrder: ?list<string>}>
      */
-    private function rowsFromCollection(SourceFile $source, Node $expression, Type $type): array
+    private function rowsFromCollection(SourceFile $source, Node $expression, Type $type, bool $needsKeyOrder = false): array
     {
         if (count($type->atomicTypes) !== 1) {
             return [];
@@ -1071,7 +1279,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
 
         $atomic = $type->atomicTypes[0];
         if ($atomic instanceof ListType) {
-            $elementNodes = $this->outerArrayElements($source, $expression);
+            $elementNodes = $needsKeyOrder ? $this->outerArrayElements($source, $expression) : null;
             $rows = [];
             foreach ($atomic->knownElements ?? [] as $element) {
                 if ($element->optional) {
@@ -1083,7 +1291,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                     'type' => $element->type,
                     'span' => $elementNode?->span ?? $expression->span,
                     'label' => '#' . $element->index,
-                    'keyOrder' => $elementNode !== null ? $this->literalStringKeyOrder($source, $elementNode) : null,
+                    'keyOrder' => ($needsKeyOrder && $elementNode !== null) ? $this->literalStringKeyOrder($source, $elementNode) : null,
                 ];
             }
 
@@ -1094,7 +1302,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
             return [];
         }
 
-        $elementNodes = $this->outerArrayElements($source, $expression);
+        $elementNodes = $needsKeyOrder ? $this->outerArrayElements($source, $expression) : ['list' => [], 'int' => [], 'string' => []];
         $rows = [];
         foreach ($atomic->knownItems as $item) {
             if ($item->optional) {
@@ -1110,11 +1318,14 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                 continue;
             }
 
-            $elementNode = match ($item->key->kind) {
-                ArrayKeyKind::String => is_string($item->key->value) ? ($elementNodes['string'][$item->key->value] ?? null) : null,
-                ArrayKeyKind::Integer => is_int($item->key->value) ? ($elementNodes['int'][$item->key->value] ?? null) : null,
-                ArrayKeyKind::ClassLikeConstant => null,
-            };
+            $elementNode = null;
+            if ($needsKeyOrder) {
+                $elementNode = match ($item->key->kind) {
+                    ArrayKeyKind::String => is_string($item->key->value) ? ($elementNodes['string'][$item->key->value] ?? null) : null,
+                    ArrayKeyKind::Integer => is_int($item->key->value) ? ($elementNodes['int'][$item->key->value] ?? null) : null,
+                    ArrayKeyKind::ClassLikeConstant => null,
+                };
+            }
 
             $rows[] = [
                 'type' => $item->type,
@@ -1501,14 +1712,25 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
             return $actual->kind === $expected->kind;
         }
 
+        if ($actual instanceof NamedObjectType) {
+            if ($expected instanceof AnyObjectType) {
+                return true;
+            }
+            if (
+                $expected instanceof NamedObjectType
+                && $expected->parameters === null
+                && $expected->intersections === null
+                && strtolower($actual->name) === strtolower($expected->name)
+            ) {
+                return true;
+            }
+        }
+
         if ($actual instanceof ScalarType && $expected instanceof ScalarType) {
-            if ($expected->refinement !== null) {
+            if (!self::isUnconstrainedScalar($expected)) {
                 return false;
             }
             if ($actual->kind === $expected->kind) {
-                return true;
-            }
-            if ($expected->kind === ScalarTypeKind::Bool && ($actual->kind === ScalarTypeKind::True || $actual->kind === ScalarTypeKind::False)) {
                 return true;
             }
             if ($expected->kind === ScalarTypeKind::String && $actual->kind === ScalarTypeKind::ClassLikeString) {
@@ -1517,9 +1739,261 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
             if ($expected->kind === ScalarTypeKind::Float && $actual->kind === ScalarTypeKind::Integer) {
                 return true;
             }
+            if (
+                $expected->kind === ScalarTypeKind::ArrayKey
+                && ($actual->kind === ScalarTypeKind::Integer || $actual->kind === ScalarTypeKind::String || $actual->kind === ScalarTypeKind::ClassLikeString)
+            ) {
+                return true;
+            }
+            if ($expected->kind === ScalarTypeKind::Scalar) {
+                return true;
+            }
+        }
+
+        if ($actual instanceof ListType || $actual instanceof KeyedArrayType) {
+            if (
+                $expected instanceof KeyedArrayType
+                && $expected->knownItems === null
+                && !$expected->nonEmpty
+                && ($expected->valueType === null || self::isMixedType($expected->valueType))
+                && ($expected->keyType === null || self::isMixedOrArrayKeyType($expected->keyType))
+            ) {
+                return true;
+            }
+            if (
+                $expected instanceof IterableType
+                && $expected->intersections === null
+                && self::isMixedType($expected->valueType)
+                && self::isMixedOrArrayKeyType($expected->keyType)
+            ) {
+                return true;
+            }
+            if (
+                $actual instanceof ListType
+                && $expected instanceof ListType
+                && $expected->knownElements === null
+                && $expected->knownCount === null
+                && !$expected->nonEmpty
+                && self::isMixedType($expected->elementType)
+            ) {
+                return true;
+            }
         }
 
         return false;
+    }
+
+    private static function isUnconstrainedScalar(ScalarType $type): bool
+    {
+        $ref = $type->refinement;
+        if ($ref === null) {
+            return true;
+        }
+        if ($ref instanceof StringType) {
+            return $ref->literalKind === StringLiteralKind::General
+                && !$ref->numeric
+                && !$ref->truthy
+                && !$ref->nonEmpty
+                && !$ref->callable
+                && $ref->casing === StringCasing::Unspecified;
+        }
+        if ($ref instanceof IntegerType) {
+            return $ref->kind === IntegerTypeKind::General;
+        }
+        if ($ref instanceof FloatType) {
+            return $ref->kind === FloatTypeKind::General;
+        }
+
+        return false;
+    }
+
+    private static function isMixedType(Type $type): bool
+    {
+        foreach ($type->atomicTypes as $atomic) {
+            if ($atomic instanceof MixedType) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static function isMixedOrArrayKeyType(Type $type): bool
+    {
+        foreach ($type->atomicTypes as $atomic) {
+            if ($atomic instanceof MixedType) {
+                return true;
+            }
+            if ($atomic instanceof ScalarType && $atomic->kind === ScalarTypeKind::ArrayKey) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Parses a test method's native PHP parameter schema directly from the AST when no @param
+     * docblock or complex hint is present, avoiding a Codebase::getMultipleMethods() IPC roundtrip.
+     *
+     * @return array{
+     *     dependencies: int,
+     *     required: int,
+     *     accepted: int,
+     *     variadic: bool,
+     *     names: list<string>,
+     *     requiredNames: list<string>,
+     *     positional: list<array{name: string, type: ?Type}>,
+     *     named: array<string, ?Type>,
+     *     variadicParameter: ?array{name: string, type: ?Type},
+     * }|null
+     */
+    private function astParameterSchema(SourceFile $source, Node $method, int $dependencies): ?array
+    {
+        $paramList = null;
+        foreach ($source->getChildren($method) as $child) {
+            if ($child->kind === NodeKind::FunctionLikeParameterList) {
+                $paramList = $child;
+                break;
+            }
+        }
+        if ($paramList === null) {
+            return null;
+        }
+
+        $required = 0;
+        $accepted = 0;
+        $variadic = false;
+        $names = [];
+        $requiredNames = [];
+        $positional = [];
+        $named = [];
+        $variadicParameter = null;
+
+        foreach ($source->getChildren($paramList) as $param) {
+            if ($param->kind !== NodeKind::FunctionLikeParameter) {
+                continue;
+            }
+
+            $varNode = null;
+            $hintNode = null;
+            $hasDefault = false;
+            foreach ($source->getChildren($param) as $part) {
+                if ($part->kind === NodeKind::DirectVariable) {
+                    $varNode = $part;
+                } elseif ($part->kind === NodeKind::Hint) {
+                    $hintNode = $part;
+                } elseif ($part->kind === NodeKind::FunctionLikeParameterDefaultValue) {
+                    $hasDefault = true;
+                }
+            }
+            if ($varNode === null) {
+                return null;
+            }
+
+            $name = ltrim($source->getText($varNode), '$');
+            $prefix = $source->getText(new Span($param->span->start, $varNode->span->start));
+            $isVariadic = str_contains($prefix, '...');
+
+            $type = null;
+            if ($hintNode !== null) {
+                $parsed = $this->astHintToType($source, $hintNode);
+                if (!$parsed['ok']) {
+                    return null;
+                }
+                $type = $parsed['type'];
+                if ($type !== null && !$this->isCheckableType($type)) {
+                    $type = null;
+                }
+            }
+
+            if ($isVariadic) {
+                $variadic = true;
+                $variadicParameter = ['name' => $name, 'type' => $type];
+                continue;
+            }
+
+            $names[] = $name;
+            $positional[] = ['name' => $name, 'type' => $type];
+            $named[$name] = $type;
+            $accepted++;
+            if (!$hasDefault) {
+                $required++;
+                $requiredNames[] = $name;
+            }
+        }
+
+        return [
+            'required' => max(0, $required - $dependencies),
+            'dependencies' => $dependencies,
+            'accepted' => $accepted,
+            'variadic' => $variadic,
+            'names' => $names,
+            'requiredNames' => $requiredNames,
+            'positional' => $positional,
+            'named' => $named,
+            'variadicParameter' => $variadicParameter,
+        ];
+    }
+
+    /**
+     * @return array{ok: bool, type: ?Type}
+     */
+    private function astHintToType(SourceFile $source, Node $node): array
+    {
+        $current = $node->kind === NodeKind::Hint ? ($source->getChildren($node)[0] ?? null) : $node;
+        if ($current === null) {
+            return ['ok' => false, 'type' => null];
+        }
+
+        if ($current->kind === NodeKind::NullableHint) {
+            $innerNode = $source->getChildren($current)[0] ?? null;
+            if ($innerNode === null) {
+                return ['ok' => false, 'type' => null];
+            }
+            $inner = $this->astHintToType($source, $innerNode);
+            if (!$inner['ok'] || $inner['type'] === null) {
+                return ['ok' => false, 'type' => null];
+            }
+
+            return ['ok' => true, 'type' => Type::union($inner['type'], Type::null())];
+        }
+
+        if ($current->kind === NodeKind::UnionHint) {
+            $members = [];
+            foreach ($source->getChildren($current) as $child) {
+                $parsed = $this->astHintToType($source, $child);
+                if (!$parsed['ok'] || $parsed['type'] === null) {
+                    return ['ok' => false, 'type' => null];
+                }
+                $members[] = $parsed['type'];
+            }
+            if ($members === []) {
+                return ['ok' => false, 'type' => null];
+            }
+
+            return ['ok' => true, 'type' => Type::union(...$members)];
+        }
+
+        if ($current->kind === NodeKind::IntersectionHint || $current->kind === NodeKind::ParenthesizedHint) {
+            return ['ok' => false, 'type' => null];
+        }
+
+        $text = strtolower(trim($source->getText($current)));
+        return match ($text) {
+            'int' => ['ok' => true, 'type' => Type::int()],
+            'float' => ['ok' => true, 'type' => Type::float()],
+            'string' => ['ok' => true, 'type' => Type::string()],
+            'bool' => ['ok' => true, 'type' => Type::bool()],
+            'true' => ['ok' => true, 'type' => Type::true()],
+            'false' => ['ok' => true, 'type' => Type::false()],
+            'null' => ['ok' => true, 'type' => Type::null()],
+            'array' => ['ok' => true, 'type' => Type::array(Type::fromAtomic(new ScalarType(ScalarTypeKind::ArrayKey)), Type::mixed())],
+            'iterable' => ['ok' => true, 'type' => Type::fromAtomic(new IterableType(Type::mixed(), Type::mixed(), null))],
+            'object' => ['ok' => true, 'type' => Type::object()],
+            'mixed' => ['ok' => true, 'type' => null],
+            default => ['ok' => false, 'type' => null],
+        };
     }
 
     /**

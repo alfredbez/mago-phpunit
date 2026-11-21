@@ -13,27 +13,40 @@ use Mago\Sdk\Analyzer\ClassTarget;
  */
 final class SetUpInitializer implements ClassInitializerProvider
 {
+    private const TEST_CASE = 'PHPUnit\\Framework\\TestCase';
+
+    private const BEFORE_ATTRIBUTE = 'PHPUnit\\Framework\\Attributes\\Before';
+
     public function getTargets(): array
     {
         return [
-            ClassTarget::exact('PHPUnit\\Framework\\TestCase'),
+            ClassTarget::exact(self::TEST_CASE),
         ];
     }
 
     public function getClassInitializers(ClassInitializerProviderContext $context): array
     {
         $initializers = [];
-        if ($context->codebase->methodExists($context->class->name, 'setUp')) {
+        $hasSetUp = false;
+        foreach ($context->class->parentClasses as $parent) {
+            if (strtolower($parent) === 'phpunit\\framework\\testcase') {
+                $hasSetUp = true;
+                break;
+            }
+        }
+        if ($hasSetUp || $context->codebase->methodExists($context->class->name, 'setUp')) {
             $initializers[] = 'setUp';
         }
 
-        foreach ($context->class->methods as $name) {
-            $method = $context->codebase->getMethod($context->class->name, $name);
-            foreach ($method?->attributes ?? [] as $attribute) {
-                if (strtolower($attribute->name) === 'phpunit\\framework\\attributes\\before') {
-                    $initializers[] = $name;
-                    break;
-                }
+        $beforeMethods = $context->codebase->findMethods(
+            descendantsOf: self::TEST_CASE,
+            withAnyAttribute: [self::BEFORE_ATTRIBUTE],
+            fields: 0,
+        );
+        $classKey = strtolower($context->class->name);
+        foreach ($beforeMethods as $method) {
+            if (strtolower($method->method->class) === $classKey) {
+                $initializers[] = $method->method->member;
             }
         }
 

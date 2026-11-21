@@ -58,4 +58,17 @@ final class DataProviderVariadicNamedTest extends TestCase
     public function testMissingRequiredNamedVariadic(int $n, string ...$rest): void
     {
     }
+
+    /** @return list<array{n: int, first: string}> */
+    public static function nonLiteralNamedRows(): array
+    {
+        $row = ['n' => 1, 'first' => 'a'];
+
+        return [$row];
+    }
+
+    #[DataProvider('nonLiteralNamedRows')]
+    public function testNonLiteralNamedRowFallsBackSafely(int $n, string ...$rest): void
+    {
+    }
 }

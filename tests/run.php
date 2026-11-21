@@ -271,13 +271,13 @@ $expected[true]['tests/fixtures/DataProviderDependsNamed.php'] = [
     'alfredbez/phpunit/phpunit-data-provider' => 0,
 ];
 $expected[false]['tests/fixtures/DataProviderVariadicNamed.php'] = [
-    'alfredbez/phpunit/phpunit-data-provider' => $namedProviderArgs ? 3 : 1,
+    'alfredbez/phpunit/phpunit-data-provider' => $namedProviderArgs ? 3 : 5,
 ];
 $expected[true]['tests/fixtures/DataProviderVariadicNamed.php'] = [
     'alfredbez/phpunit/phpunit-data-provider' => 0,
 ];
 $expected[false]['tests/fixtures/DataProviderTypes.php'] = [
-    'alfredbez/phpunit/phpunit-data-provider' => $namedProviderArgs ? 6 : 5,
+    'alfredbez/phpunit/phpunit-data-provider' => $namedProviderArgs ? 6 : 12,
 ];
 $expected[true]['tests/fixtures/DataProviderTypes.php'] = [
     'alfredbez/phpunit/phpunit-data-provider' => 0,
@@ -314,7 +314,7 @@ $expected[true]['tests/fixtures/ExternalCrossFileProvider.php'] = [
     'alfredbez/phpunit/phpunit-data-provider' => 0,
 ];
 $expected[false]['tests/fixtures/TestWithAttributes.php'] = [
-    'alfredbez/phpunit/phpunit-data-provider' => $namedProviderArgs ? 12 : 11,
+    'alfredbez/phpunit/phpunit-data-provider' => 12,
 ];
 $expected[true]['tests/fixtures/TestWithAttributes.php'] = [
     'alfredbez/phpunit/phpunit-data-provider' => 0,
@@ -671,12 +671,18 @@ foreach (
         ? [
             'for testValidNamedVariadic()' => 0,
             'for testReorderedNamedVariadic()' => 0,
+            'for testNonLiteralNamedRowFallsBackSafely()' => 0,
             'wrongTypeVariadicRows() row #0 provides int for $rest of testWrongTypeNamedVariadic(), which expects string.' => 1,
             'wrongTypeVariadicRows() row #1 provides int for $rest of testWrongTypeNamedVariadic(), which expects string.' => 1,
             'missingRequiredVariadicRows() row #0 does not provide $n for testMissingRequiredNamedVariadic().' => 1,
         ]
         : [
             'for testValidNamedVariadic()' => 0,
+            'for testNonLiteralNamedRowFallsBackSafely()' => 0,
+            'reorderedNamedVariadicRows() row #0 provides string for $n of testReorderedNamedVariadic(), which expects int.' => 1,
+            'reorderedNamedVariadicRows() row #0 provides int for $rest of testReorderedNamedVariadic(), which expects string.' => 1,
+            'wrongTypeVariadicRows() row #0 provides int for $rest of testWrongTypeNamedVariadic(), which expects string.' => 1,
+            'wrongTypeVariadicRows() row #1 provides int for $rest of testWrongTypeNamedVariadic(), which expects string.' => 1,
             'missingRequiredVariadicRows() row #0 provides string for $n of testMissingRequiredNamedVariadic(), which expects int.' => 1,
         ]
     as $needle => $count
@@ -702,8 +708,10 @@ foreach (
             'stringForInt() row "swapped" provides string for $n of testStringForInt(), which expects int.' => 1,
             'stringForInt() row "swapped" provides int for $label of testStringForInt(), which expects string.' => 1,
             'yieldedStringForInt() row #1 provides string for $n of testYieldedStringForInt(), which expects int.' => 1,
+            'namedWrongType() row #0 provides string for $n of testNamedWrongType(), which expects int.' => 1,
+            'namedWrongType() row #0 provides float for $label of testNamedWrongType(), which expects string.' => 1,
             'variadicWrongType() row #0 provides int for $rest of testVariadicWrongType(), which expects string.' => 1,
-            'compatibleRows()' => 0,
+            'compatibleRows() row "named" provides' => 5,
             'looseRows()' => 0,
             'nonLiteralRows()' => 0,
         ]
@@ -774,7 +782,7 @@ $dependencyReturnTypesFile = 'tests/fixtures/DependencyReturnTypes.php';
 foreach ([
     'for testValidStandalone()' => 0,
     'for testOrderingOnlyNoParams()' => 0,
-    'for testVoidSkippedBeforeInt()' => $skipsVoidDep ? 0 : 1,
+    'of testVoidSkippedBeforeInt()' => $skipsVoidDep ? 0 : 1,
     'for testNullableIntoNullable()' => 0,
     'for testMixedAndUntypedAreConservative()' => 0,
     'for testValidProviderAndDeps()' => 0,
@@ -810,9 +818,7 @@ foreach ([
     ($namedProviderArgs
         ? 'Attribute #[TestWith] row #2 provides unknown argument $extra for testNamedTestWith().'
         : 'Attribute #[TestWith] row #2 provides 3 arguments for testNamedTestWith(), which accepts 2.') => 1,
-    ($namedProviderArgs
-        ? 'Attribute #[TestWith] row #3 provides string for $n of testNamedTestWith(), which expects int.'
-        : 'Attribute #[TestWith] row #3 provides string for $n of testNamedTestWith(), which expects int.') => $namedProviderArgs ? 1 : 0,
+    'Attribute #[TestWith] row #3 provides string for $n of testNamedTestWith(), which expects int.' => 1,
     'for testTestWithAndDependency()' => 0,
     'Attribute #[TestWithJson] row #1 provides 1 argument for testTestWithJson(), which requires 2.' => 1,
     'Attribute #[TestWithJson] row #2 provides 3 arguments for testTestWithJson(), which accepts 2.' => 1,

@@ -80,7 +80,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
     /** @var WeakMap<SourceFile, array<string, array<string, Node>>> */
     private WeakMap $methodsByFile;
 
-    /** @var WeakMap<SourceFile, array<int, list<array{type: Type, span: Span, label: string}>>> */
+    /** @var WeakMap<SourceFile, array<int, list<array{type: Type, span: Span, label: string, keyOrder: ?list<string>}>>> */
     private WeakMap $providerRowsByFile;
 
     public function __construct()
@@ -190,6 +190,8 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                 $this->checkTestWithAttributes(
                     $context,
                     $context->analysis->file,
+                    $source,
+                    $node,
                     $test->attributes,
                     $testLabel,
                     $schema,
@@ -792,12 +794,13 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                 $validateCount,
                 $dependencies,
                 $checkedDepOffsets,
+                $row['keyOrder'],
             );
         }
     }
 
     /**
-     * @return list<array{type: Type, span: Span, label: string}>
+     * @return list<array{type: Type, span: Span, label: string, keyOrder: ?list<string>}>
      */
     private function extractProviderRows(FileAnalysis $analysis, SourceFile $source, Node $provider): array
     {
@@ -845,6 +848,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                     'type' => $type,
                     'span' => $expression->span,
                     'label' => '#' . $index,
+                    'keyOrder' => $this->literalStringKeyOrder($source, $expression),
                 ];
             }
 
@@ -899,13 +903,17 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
     private function checkTestWithAttributes(
         LifecycleContext $context,
         string $reportFile,
+        SourceFile $source,
+        Node $methodNode,
         array $attributes,
         string $test,
         array $schema,
         array $dependencies,
         array &$checkedDepOffsets,
     ): void {
+        $testWithDataNodes = $this->testWithDataArgumentNodes($source, $methodNode);
         $index = 0;
+        $testWithIndex = 0;
         foreach ($attributes as $attribute) {
             $normalized = strtolower($attribute->name);
             if ($normalized !== self::TEST_WITH && $normalized !== self::TEST_WITH_JSON) {
@@ -918,6 +926,8 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
             $index++;
 
             if ($normalized === self::TEST_WITH) {
+                $dataNode = $testWithDataNodes[$testWithIndex] ?? null;
+                $testWithIndex++;
                 $dataArg = $attribute->getArgument(0, 'data');
                 $type = $dataArg?->valueType;
                 if ($type === null) {
@@ -925,6 +935,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                 }
 
                 $span = $dataArg->valueLocation?->span ?? $attribute->location->span;
+                $keyOrder = $dataNode !== null ? $this->literalStringKeyOrder($source, $dataNode) : null;
                 $this->checkRow(
                     $context,
                     $reportFile,
@@ -938,6 +949,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                     true,
                     $dependencies,
                     $checkedDepOffsets,
+                    $keyOrder,
                 );
                 continue;
             }
@@ -970,6 +982,22 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                 continue;
             }
 
+            $jsonKeyOrder = null;
+            if ($decoded !== [] && !array_is_list($decoded)) {
+                $keys = [];
+                $allStrings = true;
+                foreach (array_keys($decoded) as $k) {
+                    if (!is_string($k)) {
+                        $allStrings = false;
+                        break;
+                    }
+                    $keys[] = $k;
+                }
+                if ($allStrings) {
+                    $jsonKeyOrder = $keys;
+                }
+            }
+
             $this->checkRow(
                 $context,
                 $reportFile,
@@ -983,6 +1011,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                 true,
                 $dependencies,
                 $checkedDepOffsets,
+                $jsonKeyOrder,
             );
         }
     }
@@ -1032,7 +1061,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
     }
 
     /**
-     * @return list<array{type: Type, span: Span, label: string}>
+     * @return list<array{type: Type, span: Span, label: string, keyOrder: ?list<string>}>
      */
     private function rowsFromCollection(SourceFile $source, Node $expression, Type $type): array
     {
@@ -1042,16 +1071,19 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
 
         $atomic = $type->atomicTypes[0];
         if ($atomic instanceof ListType) {
+            $elementNodes = $this->outerArrayElements($source, $expression);
             $rows = [];
             foreach ($atomic->knownElements ?? [] as $element) {
                 if ($element->optional) {
                     continue;
                 }
 
+                $elementNode = $elementNodes['list'][$element->index] ?? null;
                 $rows[] = [
                     'type' => $element->type,
-                    'span' => $this->listElementSpan($source, $expression, $element->index),
+                    'span' => $elementNode?->span ?? $expression->span,
                     'label' => '#' . $element->index,
+                    'keyOrder' => $elementNode !== null ? $this->literalStringKeyOrder($source, $elementNode) : null,
                 ];
             }
 
@@ -1062,6 +1094,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
             return [];
         }
 
+        $elementNodes = $this->outerArrayElements($source, $expression);
         $rows = [];
         foreach ($atomic->knownItems as $item) {
             if ($item->optional) {
@@ -1077,10 +1110,17 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                 continue;
             }
 
+            $elementNode = match ($item->key->kind) {
+                ArrayKeyKind::String => is_string($item->key->value) ? ($elementNodes['string'][$item->key->value] ?? null) : null,
+                ArrayKeyKind::Integer => is_int($item->key->value) ? ($elementNodes['int'][$item->key->value] ?? null) : null,
+                ArrayKeyKind::ClassLikeConstant => null,
+            };
+
             $rows[] = [
                 'type' => $item->type,
                 'span' => $expression->span,
                 'label' => $label,
+                'keyOrder' => $elementNode !== null ? $this->literalStringKeyOrder($source, $elementNode) : null,
             ];
         }
 
@@ -1101,6 +1141,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
      * } $schema
      * @param list<array{class: ?string, method: ?string, span: Span, external: bool}> $dependencies
      * @param array<int, true> $checkedDepOffsets
+     * @param list<string>|null $keyOrder
      */
     private function checkRow(
         LifecycleContext $context,
@@ -1115,16 +1156,35 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
         bool $validateCount,
         array $dependencies,
         array &$checkedDepOffsets,
+        ?array $keyOrder = null,
     ): void {
         $named = $this->namedArguments($type);
         if ($named !== null) {
             if (!PhpUnitVersion::supportsNamedProviderArguments($context->codebase)) {
+                $ordered = null;
                 if (count($named) <= 1) {
+                    $ordered = array_values($named);
+                } elseif ($keyOrder !== null && count($keyOrder) === count($named)) {
+                    $resolved = [];
+                    $allMatched = true;
+                    foreach ($keyOrder as $key) {
+                        if (!array_key_exists($key, $named)) {
+                            $allMatched = false;
+                            break;
+                        }
+                        $resolved[] = $named[$key];
+                    }
+                    if ($allMatched) {
+                        $ordered = $resolved;
+                    }
+                }
+
+                if ($ordered !== null) {
                     $this->checkPositionalArguments(
                         $context,
                         $reportFile,
                         $testFile,
-                        array_values($named),
+                        $ordered,
                         $span,
                         $label,
                         $test,
@@ -1138,8 +1198,8 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                     return;
                 }
 
-                // Mago sorts string keys in KeyedArrayType alphabetically, losing PHP insertion order
-                // for array_values() unpacking on PHPUnit 10.5. Validate arity only for multi-key rows.
+                // Non-literal multi-key array: Mago sorts KeyedArrayType keys alphabetically, so
+                // insertion order for PHPUnit 10.5 array_values() is unknown; check arity only.
                 $this->checkPositionalArity(
                     $context,
                     $reportFile,
@@ -1667,26 +1727,201 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
         );
     }
 
-    private function listElementSpan(SourceFile $source, Node $expression, int $index): Span
+    /**
+     * @return array{list: list<Node>, int: array<int, Node>, string: array<string, Node>}
+     */
+    private function outerArrayElements(SourceFile $source, Node $expression): array
     {
-        $array = $expression->kind === NodeKind::Array || $expression->kind === NodeKind::LegacyArray
-            ? $expression
-            : ($source->getFirstDescendant($expression, NodeKind::Array) ?? $source->getFirstDescendant($expression, NodeKind::LegacyArray));
+        $empty = ['list' => [], 'int' => [], 'string' => []];
+        $array = $this->unwrapArrayNode($source, $expression);
         if ($array === null) {
-            return $expression->span;
+            return $empty;
         }
 
-        $elements = [];
-        foreach ($source->getChildren($array) as $child) {
+        $list = [];
+        $byInt = [];
+        $byString = [];
+        $nextInt = 0;
+        foreach ($source->getChildren($array) as $rawChild) {
+            $child = $rawChild->kind === NodeKind::ArrayElement
+                ? ($source->getChildren($rawChild)[0] ?? null)
+                : $rawChild;
+            if ($child === null) {
+                continue;
+            }
             if ($child->kind === NodeKind::VariadicArrayElement || $child->kind === NodeKind::MissingArrayElement) {
-                return $expression->span;
+                return $empty;
             }
-            if ($child->kind === NodeKind::ValueArrayElement || $child->kind === NodeKind::KeyValueArrayElement) {
-                $elements[] = $child;
+            if ($child->kind === NodeKind::ValueArrayElement) {
+                $list[] = $child;
+                $byInt[$nextInt] = $child;
+                $nextInt++;
+                continue;
+            }
+            if ($child->kind === NodeKind::KeyValueArrayElement) {
+                $list[] = $child;
+                $children = $source->getChildren($child);
+                $keyNode = $children[0] ?? null;
+                $strKey = $this->directLiteralString($source, $keyNode);
+                if ($strKey !== null) {
+                    $byString[$strKey] = $child;
+                    continue;
+                }
+                $intKey = $this->directLiteralInt($source, $keyNode);
+                if ($intKey !== null) {
+                    $byInt[$intKey] = $child;
+                    if ($intKey >= $nextInt) {
+                        $nextInt = $intKey + 1;
+                    }
+                }
             }
         }
 
-        return $elements[$index]->span ?? $expression->span;
+        return ['list' => $list, 'int' => $byInt, 'string' => $byString];
+    }
+
+    /**
+     * Reconstructs PHP insertion order of literal string keys from an array AST node.
+     *
+     * @return list<string>|null
+     */
+    private function literalStringKeyOrder(SourceFile $source, Node $expression): ?array
+    {
+        $array = $this->unwrapArrayNode($source, $expression);
+        if ($array === null) {
+            return null;
+        }
+
+        $order = [];
+        $seen = [];
+        foreach ($source->getChildren($array) as $rawChild) {
+            $child = $rawChild->kind === NodeKind::ArrayElement
+                ? ($source->getChildren($rawChild)[0] ?? null)
+                : $rawChild;
+            if ($child === null) {
+                continue;
+            }
+            if (
+                $child->kind === NodeKind::VariadicArrayElement
+                || $child->kind === NodeKind::MissingArrayElement
+                || $child->kind === NodeKind::ValueArrayElement
+            ) {
+                return null;
+            }
+            if ($child->kind !== NodeKind::KeyValueArrayElement) {
+                continue;
+            }
+
+            $keyNode = $source->getChildren($child)[0] ?? null;
+            $key = $this->directLiteralString($source, $keyNode);
+            if ($key === null) {
+                return null;
+            }
+            if (!isset($seen[$key])) {
+                $seen[$key] = true;
+                $order[] = $key;
+            }
+        }
+
+        return $order === [] ? null : $order;
+    }
+
+    private function unwrapArrayNode(SourceFile $source, Node $node): ?Node
+    {
+        $current = $node;
+        while (true) {
+            if ($current->kind === NodeKind::Array || $current->kind === NodeKind::LegacyArray) {
+                return $current;
+            }
+
+            $children = $source->getChildren($current);
+            if ($current->kind === NodeKind::KeyValueArrayElement || $current->kind === NodeKind::NamedArgument) {
+                $next = $children !== [] ? $children[array_key_last($children)] : null;
+            } elseif (
+                $current->kind === NodeKind::ArrayElement
+                || $current->kind === NodeKind::ValueArrayElement
+                || $current->kind === NodeKind::PositionalArgument
+                || $current->kind === NodeKind::Expression
+                || $current->kind === NodeKind::Parenthesized
+            ) {
+                $next = $children[0] ?? null;
+            } else {
+                return null;
+            }
+
+            if ($next === null) {
+                return null;
+            }
+            $current = $next;
+        }
+    }
+
+    private function directLiteralString(SourceFile $source, ?Node $node): ?string
+    {
+        $current = $node;
+        while (
+            $current !== null
+            && (
+                $current->kind === NodeKind::Expression
+                || $current->kind === NodeKind::Parenthesized
+                || $current->kind === NodeKind::Literal
+            )
+        ) {
+            $current = $source->getChildren($current)[0] ?? null;
+        }
+        if ($current === null || $current->kind !== NodeKind::LiteralString) {
+            return null;
+        }
+
+        return $source->getLiteralString($current) ?? $this->decodeQuoted($source->getText($current));
+    }
+
+    private function directLiteralInt(SourceFile $source, ?Node $node): ?int
+    {
+        $current = $node;
+        while (
+            $current !== null
+            && (
+                $current->kind === NodeKind::Expression
+                || $current->kind === NodeKind::Parenthesized
+                || $current->kind === NodeKind::Literal
+            )
+        ) {
+            $current = $source->getChildren($current)[0] ?? null;
+        }
+        if ($current === null || $current->kind !== NodeKind::LiteralInteger) {
+            return null;
+        }
+
+        $raw = str_replace('_', '', $source->getText($current));
+        if (ctype_digit($raw)) {
+            return (int) $raw;
+        }
+
+        return null;
+    }
+
+    /** @return list<?Node> */
+    private function testWithDataArgumentNodes(SourceFile $source, Node $method): array
+    {
+        $nodes = [];
+        foreach ($source->getChildren($method) as $list) {
+            if ($list->kind !== NodeKind::AttributeList) {
+                continue;
+            }
+            foreach ($source->getChildren($list) as $attribute) {
+                if ($attribute->kind !== NodeKind::Attribute) {
+                    continue;
+                }
+                if (strtolower($this->attributeName($source, $attribute) ?? '') !== self::TEST_WITH) {
+                    continue;
+                }
+                $arguments = $this->attributeArguments($source, $attribute);
+                $nodes[] = $this->attributeArgument($source, $arguments, 0, 'data');
+            }
+        }
+
+        return $nodes;
     }
 
     private function valueExpression(SourceFile $source, Node $node): ?Node

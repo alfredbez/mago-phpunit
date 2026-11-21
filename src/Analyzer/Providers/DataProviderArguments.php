@@ -41,6 +41,7 @@ use Mago\Sdk\Analyzer\Type\SimpleAtomicTypeKind;
 use Mago\Sdk\Analyzer\Type\StringCasing;
 use Mago\Sdk\Analyzer\Type\StringLiteralKind;
 use Mago\Sdk\Analyzer\Type\StringType;
+use Mago\Sdk\Analyzer\Type\Visibility;
 use Mago\Sdk\Reporting\Issue;
 use Mago\Sdk\Reporting\Level;
 use Mago\Sdk\SourceLocation;
@@ -233,6 +234,28 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
 
         $fullSource = null;
         $fileMethods = null;
+        $isAbstractClass = $this->isAbstractClassNode($source, $context->node);
+        $providerMetaQueries = [];
+        foreach ($workItems as $item) {
+            foreach ($item['providers'] as $provider) {
+                if (!$provider['fromAttribute'] || $provider['node'] !== null) {
+                    continue;
+                }
+                if (!$provider['external'] && str_contains($provider['method'], '::')) {
+                    continue;
+                }
+                $providerClassKey = strtolower($provider['class']);
+                $providerMethodKey = strtolower($provider['method']);
+                if (!$provider['external'] && $providerClassKey === $lowerClassName && isset($classMethods[$providerMethodKey])) {
+                    continue;
+                }
+                $providerMetaQueries[$providerClassKey . "\0" . $providerMethodKey] = new MemberIdentifier($provider['class'], $provider['method']);
+            }
+        }
+        if ($providerMetaQueries !== []) {
+            $context->codebase->getMultipleDeclaringMethods(array_values($providerMetaQueries));
+        }
+
         foreach ($workItems as $item) {
             $testLabel = $item['label'];
             $effectiveDependencies = $this->valuePassingDependencies($context, $item['dependencies']);
@@ -270,6 +293,21 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                 $providerSource = $source;
                 $providerClassKey = strtolower($provider['class']);
                 $providerMethodKey = strtolower($provider['method']);
+                if ($provider['fromAttribute'] && $provider['node'] === null) {
+                    $sameClassNode = (!$provider['external'] && $providerClassKey === $lowerClassName && isset($classMethods[$providerMethodKey]))
+                        ? $classMethods[$providerMethodKey]['node']
+                        : null;
+                    if (!$this->validateProviderDeclaration(
+                        $context,
+                        $source,
+                        $provider,
+                        $sameClassNode,
+                        $testLabel,
+                        $isAbstractClass,
+                    )) {
+                        continue;
+                    }
+                }
                 if ($provider['node'] !== null) {
                     $providerNode = $provider['node'];
                 } elseif ($providerClassKey === $lowerClassName && isset($classMethods[$providerMethodKey])) {
@@ -591,6 +629,8 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                             $this->attributeArgument($source, $arguments, 1, 'validateArgumentCount'),
                         ),
                         'external' => false,
+                        'fromAttribute' => true,
+                        'span' => $attribute->span,
                     ];
                     continue;
                 }
@@ -618,6 +658,8 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                             $this->attributeArgument($source, $arguments, 1, 'validateArgumentCount'),
                         ),
                         'external' => false,
+                        'fromAttribute' => true,
+                        'span' => $attribute->span,
                     ];
                     continue;
                 }
@@ -631,6 +673,12 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                     }
 
                     $providerClass = $this->referencedClass($context, $source, $classArgument);
+                    if ($providerClass === null) {
+                        $literalClass = $this->literalString($source, $classArgument);
+                        if ($literalClass !== null && $literalClass !== '') {
+                            $providerClass = ltrim($literalClass, '\\');
+                        }
+                    }
                     $provider = $this->literalString($source, $methodArgument);
                     if ($providerClass === null || $provider === null || $provider === '') {
                         continue;
@@ -645,6 +693,8 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                             $this->attributeArgument($source, $arguments, 2, 'validateArgumentCount'),
                         ),
                         'external' => true,
+                        'fromAttribute' => true,
+                        'span' => $attribute->span,
                     ];
                 }
             }
@@ -672,6 +722,8 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                             'node' => null,
                             'validateCount' => true,
                             'external' => false,
+                            'fromAttribute' => false,
+                            'span' => $method->span,
                         ];
                     }
                 }
@@ -855,6 +907,173 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                 (string) $parameter['type'],
             ));
         }
+    }
+
+    private function isAbstractClassNode(SourceFile $source, Node $classNode): bool
+    {
+        foreach ($source->getChildren($classNode) as $child) {
+            if ($child->kind === NodeKind::Modifier && strtolower(trim($source->getText($child))) === 'abstract') {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Validates that #[DataProvider] and #[DataProviderExternal] reference an existing,
+     * public, static method (and that #[DataProvider] does not pass Class::method syntax).
+     *
+     * @param array{class: string, method: string, node: ?Node, validateCount: bool, external: bool, fromAttribute: bool, span: Span} $provider
+     */
+    private function validateProviderDeclaration(
+        NodeAnalysisContext $context,
+        SourceFile $source,
+        array $provider,
+        ?Node $sameClassNode,
+        string $testLabel,
+        bool $isAbstractClass,
+    ): bool {
+        $providerClass = $provider['class'];
+        $providerMethod = $provider['method'];
+
+        if (!$provider['external'] && str_contains($providerMethod, '::')) {
+            $this->report(
+                $context,
+                $context->analysis->file,
+                $provider['span'],
+                sprintf(
+                    'Data provider `%s` in #[DataProvider] on %s() cannot use Class::method syntax; use #[DataProviderExternal] instead.',
+                    $providerMethod,
+                    $testLabel,
+                ),
+            );
+
+            return false;
+        }
+
+        if ($sameClassNode !== null) {
+            $isPublic = true;
+            $isStatic = false;
+            foreach ($source->getChildren($sameClassNode) as $child) {
+                if ($child->kind !== NodeKind::Modifier) {
+                    continue;
+                }
+                $mod = strtolower(trim($source->getText($child)));
+                if ($mod === 'private' || $mod === 'protected') {
+                    $isPublic = false;
+                } elseif ($mod === 'static') {
+                    $isStatic = true;
+                }
+            }
+
+            if (!$isPublic) {
+                $this->report(
+                    $context,
+                    $context->analysis->file,
+                    $provider['span'],
+                    sprintf(
+                        'Data provider method `%s::%s()` referenced by %s() must be public.',
+                        $providerClass,
+                        $providerMethod,
+                        $testLabel,
+                    ),
+                );
+
+                return false;
+            }
+
+            if (!$isStatic) {
+                $this->report(
+                    $context,
+                    $context->analysis->file,
+                    $provider['span'],
+                    sprintf(
+                        'Data provider method `%s::%s()` referenced by %s() must be static.',
+                        $providerClass,
+                        $providerMethod,
+                        $testLabel,
+                    ),
+                );
+
+                return false;
+            }
+
+            return true;
+        }
+
+        if ($provider['external'] && !$context->codebase->classLikeExists($providerClass)) {
+            $this->report(
+                $context,
+                $context->analysis->file,
+                $provider['span'],
+                sprintf(
+                    'Data provider class `%s` referenced by #[DataProviderExternal] on %s() does not exist.',
+                    $providerClass,
+                    $testLabel,
+                ),
+            );
+
+            return false;
+        }
+
+        $meta = $context->codebase->getDeclaringMethod($providerClass, $providerMethod);
+        if ($meta === null) {
+            if (!$provider['external'] && $isAbstractClass) {
+                return true;
+            }
+
+            $classMeta = $context->codebase->getClassLike($providerClass);
+            if ($classMeta !== null && !$classMeta->hasIncompleteHierarchy()) {
+                $this->report(
+                    $context,
+                    $context->analysis->file,
+                    $provider['span'],
+                    sprintf(
+                        'Data provider method `%s::%s()` referenced by %s() does not exist.',
+                        $providerClass,
+                        $providerMethod,
+                        $testLabel,
+                    ),
+                );
+            }
+
+            return false;
+        }
+
+        if ($meta->visibility !== null && $meta->visibility !== Visibility::Public) {
+            $this->report(
+                $context,
+                $context->analysis->file,
+                $provider['span'],
+                sprintf(
+                    'Data provider method `%s::%s()` referenced by %s() must be public.',
+                    $providerClass,
+                    $providerMethod,
+                    $testLabel,
+                ),
+            );
+
+            return false;
+        }
+
+        if (!$meta->static) {
+            $this->report(
+                $context,
+                $context->analysis->file,
+                $provider['span'],
+                sprintf(
+                    'Data provider method `%s::%s()` referenced by %s() must be static.',
+                    $providerClass,
+                    $providerMethod,
+                    $testLabel,
+                ),
+            );
+
+            return false;
+        }
+
+        return true;
     }
 
     private function classNodeName(SourceFile $source, Node $classNode): ?string

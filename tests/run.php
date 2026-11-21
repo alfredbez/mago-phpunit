@@ -341,6 +341,12 @@ $expected[false]['tests/fixtures/MockMethodCalls.php'] = [
 $expected[true]['tests/fixtures/MockMethodCalls.php'] = [
     'uninitialized-property' => 2,
 ];
+$expected[false]['tests/fixtures/DataProviderDeclarations.php'] = [
+    'alfredbez/phpunit/phpunit-data-provider' => 9,
+];
+$expected[true]['tests/fixtures/DataProviderDeclarations.php'] = [
+    'alfredbez/phpunit/phpunit-data-provider' => 0,
+];
 // PHPUnit 13.1 introduced #[DataProviderClosure]. Earlier versions report the missing attribute class,
 // and the extension adds no issues there.
 $closureProviderSupported = is_file('vendor/phpunit/phpunit/src/Framework/Attributes/DataProviderClosure.php');
@@ -876,6 +882,19 @@ foreach ([
     'Trying to mock an undefined method `AlfredBez\\MagoPhpunit\\Fixtures\\MockedNotifier::sendInvoice()`.' => 1,
 ] as $needle => $count) {
     $failures += assertMessageCount('with extension', $with, 'tests/fixtures/MockMethodCalls.php', $mockMethodCode, $needle, $count);
+}
+foreach ([
+    'Data provider method `AlfredBez\\MagoPhpunit\\Fixtures\\DataProviderDeclarationsTest::missingRows()` referenced by testMissingLocal() does not exist.' => 1,
+    'Data provider method `AlfredBez\\MagoPhpunit\\Fixtures\\DataProviderDeclarationsTest::privateRows()` referenced by testPrivateLocal() must be public.' => 1,
+    'Data provider method `AlfredBez\\MagoPhpunit\\Fixtures\\DataProviderDeclarationsTest::protectedRows()` referenced by testProtectedLocal() must be public.' => 1,
+    'Data provider method `AlfredBez\\MagoPhpunit\\Fixtures\\DataProviderDeclarationsTest::nonStaticRows()` referenced by testNonStaticLocal() must be static.' => 1,
+    'Data provider `ExternalDeclarationProvider::validExternal` in #[DataProvider] on testInvalidClassColonSyntax() cannot use Class::method syntax; use #[DataProviderExternal] instead.' => 1,
+    'Data provider method `AlfredBez\\MagoPhpunit\\Fixtures\\ExternalDeclarationProvider::missingExternal()` referenced by testMissingExternalMethod() does not exist.' => 1,
+    'Data provider method `AlfredBez\\MagoPhpunit\\Fixtures\\ExternalDeclarationProvider::nonStaticExternal()` referenced by testNonStaticExternalMethod() must be static.' => 1,
+    'Data provider method `AlfredBez\\MagoPhpunit\\Fixtures\\ExternalDeclarationProvider::protectedExternal()` referenced by testProtectedExternalMethod() must be public.' => 1,
+    'Data provider class `AlfredBez\\MagoPhpunit\\Fixtures\\MissingExternalProviderClass` referenced by #[DataProviderExternal] on testMissingExternalClassLiteral() does not exist.' => 1,
+] as $needle => $count) {
+    $failures += assertMessageCount('with extension', $with, 'tests/fixtures/DataProviderDeclarations.php', $dataProvider, $needle, $count);
 }
 foreach ($with as $issue) {
     if (

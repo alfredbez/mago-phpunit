@@ -27,6 +27,7 @@ final class PhpUnitPlugin implements Plugin
 
     public function register(PluginRegistry $registry): void
     {
+        $registry->enableProviderMemoization();
         $registry->registerMethodAssertionProvider(new AssertArrayHasKeyAssertion());
         $registry->registerFunctionAssertionProvider(new AssertArrayHasKeyFunctionAssertion());
         $registry->registerMethodAssertionProvider(new ContainsOnlyInstancesAssertion());

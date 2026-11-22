@@ -12,6 +12,7 @@ use Mago\Sdk\Analyzer\MethodTarget;
 use Mago\Sdk\Analyzer\NodeAnalysisContext;
 use Mago\Sdk\Analyzer\Type;
 use Mago\Sdk\Analyzer\Type\NamedObjectType;
+use Mago\Sdk\Analyzer\Type\Visibility;
 use Mago\Sdk\Reporting\Issue;
 use Mago\Sdk\Reporting\Level;
 use Mago\Sdk\SourceLocation;
@@ -52,6 +53,7 @@ final class MockMethodCallHook implements MethodCallAnalysisHook
         return [
             FileAnalysisRequirement::ReceiverType,
             FileAnalysisRequirement::ArgumentTypes,
+            FileAnalysisRequirement::SourceText,
         ];
     }
 
@@ -122,7 +124,37 @@ final class MockMethodCallHook implements MethodCallAnalysisHook
                     $checks[] = new MemberIdentifier($className, $methodName);
                 }
 
-                if (in_array(true, $context->codebase->checkMultipleMethodsExist($checks), true)) {
+                $partial = preg_match('/(?:->|::)\s*(?:getMockBuilder|createPartialMock|onlyMethods|addMethods|getMockForTrait|getMockForAbstractClass)\s*\(/i', $context->source->contents) === 1;
+                $exists = $context->codebase->checkMultipleMethodsExist($checks);
+                $methods = $context->codebase->getMultipleMethods($checks);
+                $reason = null;
+                foreach ($methods as $index => $method) {
+                    if ($method === null) {
+                        if ($exists[$index] ?? false) {
+                            continue 2;
+                        }
+                        continue;
+                    }
+                    if ($method->final || $method->visibility === Visibility::Private || in_array($lowerMethod, ['__construct', '__destruct'], true)) {
+                        $reason = 'final, private, constructor, or destructor methods cannot be doubled';
+                    } elseif ($method->visibility === Visibility::Protected && !$partial) {
+                        $reason = 'protected methods require an explicit partial mock';
+                    } else {
+                        continue 2;
+                    }
+                }
+                if ($reason !== null) {
+                    $context->report(
+                        Level::Error,
+                        self::ISSUE_CODE,
+                        Issue::at(
+                            "Cannot configure `{$targetLabel}::{$methodName}()` because {$reason}.",
+                            new SourceLocation($context->analysis->file, $context->node->span),
+                        ),
+                    );
+                    continue;
+                }
+                if ($partial) {
                     continue;
                 }
 

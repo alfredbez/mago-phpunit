@@ -85,372 +85,588 @@
       "kind": "runtime-test",
       "scope": "PHPUnit 12.5.0 assertStringStartsWith requires non-empty haystack when prefix is non-empty",
       "sha256": "f3497b644a40348a519779a9c0abe3a0aee74c157498ea61df4d8621ea764178"
+    },
+    "phpunit-wave8-mock-generator": {
+      "url": "https://github.com/sebastianbergmann/phpunit/blob/76bd3198f16aeb375a4d5f3626471445aed0966e/src/Framework/MockObject/Generator/Generator.php",
+      "kind": "runtime-contract",
+      "scope": "PHPUnit 12.5.40 excludes final, private, constructor and destructor methods; protected methods require explicit selection",
+      "sha256": "5d9aba8888cae7af746681b555c218ac980c0bee32c56f568e6396a9321038dd"
     }
   },
   "cases": [
     {
       "id": "PHPUNIT-A001",
       "title": "Literal method assertion establishes key presence",
-      "sources": ["phpunit-array-key", "phpunit-assertions", "mago-2383"],
+      "sources": [
+        "phpunit-array-key",
+        "phpunit-assertions",
+        "mago-2383"
+      ],
       "fixture": "<?php use PHPUnit\\Framework\\Assert; /** @param array{k?: string} $a */ function check(array $a): string { Assert::assertArrayHasKey('k', $a); return $a['k']; }",
       "semantics": "On normal return the literal key exists. Other optional keys remain optional.",
       "analyzer_expectation": "No undefined-key diagnostic on the asserted offset. Preserve diagnostics on an unrelated offset.",
       "negative_control": "Assert 'k', then read optional 'other'; also remove the assertion.",
       "priority": "P0",
       "versions": "Mago 1.58.2 conformance verified across PHPUnit 10.5.66, 11.5.57, 12.5.42 and 13.4.5. Exact PHP combinations are recorded in cycles/001-A003.md.",
-      "coverage": ["tests/fixtures/HasKeyPositive.php", "tests/fixtures/HasKeyCounter.php"],
+      "coverage": [
+        "tests/fixtures/HasKeyPositive.php",
+        "tests/fixtures/HasKeyCounter.php"
+      ],
       "status": "covered"
     },
     {
       "id": "PHPUNIT-A002",
       "title": "Key presence does not imply a non-null value",
-      "sources": ["phpunit-assertions", "phpunit-array-key"],
+      "sources": [
+        "phpunit-assertions",
+        "phpunit-array-key"
+      ],
       "fixture": "<?php use PHPUnit\\Framework\\Assert; $a = ['k' => null]; Assert::assertArrayHasKey('k', $a); Assert::assertNull($a['k']);",
       "semantics": "A null-valued array entry is present. HasKey must not become HasNonnullEntryForKey.",
       "analyzer_expectation": "After the assertion, returning the nullable entry from a string-returning function remains invalid.",
       "negative_control": "assertArrayNotHasKey('k', ['k' => null]) fails at runtime. Each of this/self/static/Assert method calls retains nullable-return and invalid-return diagnostics. Unasserted and unrelated offsets stay optional; disabling extensions restores all seven method-fixture offset warnings.",
       "priority": "P0",
       "versions": "Method conformance verified on Mago 1.60.2 / PHP 8.4 / PHPUnit 12.5.40. Function conformance and runtime checked across the cycle 001 matrix. Existing HasKey implementation preserves nullability.",
-      "coverage": ["tests/fixtures/HasKeyNullable.php", "tests/fixtures/HasKeyFunction.php", "tests/run.php", "tests/runtime/RuntimeContractTest.php", "tests/mutate-a003.php"],
+      "coverage": [
+        "tests/fixtures/HasKeyNullable.php",
+        "tests/fixtures/HasKeyFunction.php",
+        "tests/run.php",
+        "tests/runtime/RuntimeContractTest.php",
+        "tests/mutate-a003.php"
+      ],
       "status": "covered"
     },
     {
       "id": "PHPUNIT-A003",
       "title": "Namespaced assertion function establishes key presence",
-      "sources": ["phpstan-assert-functions", "phpunit-assertions"],
+      "sources": [
+        "phpstan-assert-functions",
+        "phpunit-assertions"
+      ],
       "fixture": "<?php use function PHPUnit\\Framework\\assertArrayHasKey; /** @param array{k?: string|null} $a */ function check(array $a): string|null { assertArrayHasKey('k', $a); return $a['k']; }",
       "semantics": "The public namespaced assertion function has the same key-existence postcondition as the method.",
       "analyzer_expectation": "Narrow the asserted key on normal return. PHPStan's hasOffset spelling is analyzer-specific and is not required.",
       "negative_control": "Unasserted, other-key, variable-key and unrelated-function reads retain four offset warnings. Nullable returns retain both errors. Disabling extensions restores seven string-offset and one integer-offset warnings. Reordered named arguments retain two native no-named-arguments diagnostics.",
       "priority": "P0",
       "versions": "Red before fix on PHPUnit 12.5.40 / Mago 1.58.2; green across cycle 001's seven PHP/PHPUnit combinations. PHPStan fixture is pinned; PHPStan itself was not executed. Named argument names are not a PHPUnit compatibility guarantee.",
-      "coverage": ["tests/fixtures/HasKeyFunction.php", "tests/run.php", "tests/runtime/RuntimeContractTest.php", "tests/mutate-a003.php"],
+      "coverage": [
+        "tests/fixtures/HasKeyFunction.php",
+        "tests/run.php",
+        "tests/runtime/RuntimeContractTest.php",
+        "tests/mutate-a003.php"
+      ],
       "status": "covered"
     },
     {
       "id": "PHPUNIT-A004",
       "title": "Canonical numeric string keys alias integer keys",
-      "sources": ["phpunit-array-key", "phpunit-assertions"],
+      "sources": [
+        "phpunit-array-key",
+        "phpunit-assertions"
+      ],
       "fixture": "<?php use PHPUnit\\Framework\\Assert; Assert::assertArrayHasKey('7', [7 => 'value']); Assert::assertArrayHasKey(7, ['7' => 'value']);",
       "semantics": "PHP array key conversion makes '7' and 7 equivalent. '07' remains a distinct string key.",
       "analyzer_expectation": "Preserve PHP key normalization, without treating every numeric-looking string as an integer.",
       "negative_control": "Asserting '07' leaves optional integer 7 uncertain, and asserting 7 leaves optional '07' uncertain. Both mismatches fail at runtime. Removing assertions restores five nullable and invalid returns plus six integer and two string offset warnings.",
       "priority": "P1",
       "versions": "Mago 1.60.2 / PHP 8.4 / PHPUnit 12.5.40 method and function conformance checked. The existing provider and Mago already normalize these keys. No claim about all PHP numeric string edge cases.",
-      "coverage": ["tests/fixtures/HasKeyNumeric.php", "tests/runtime/RuntimeContractTest.php", "tests/run.php"],
+      "coverage": [
+        "tests/fixtures/HasKeyNumeric.php",
+        "tests/runtime/RuntimeContractTest.php",
+        "tests/run.php"
+      ],
       "status": "covered"
     },
     {
       "id": "PHPUNIT-A005",
       "title": "ArrayAccess remains an object",
-      "sources": ["phpunit-array-key", "phpstan-assert-functions"],
+      "sources": [
+        "phpunit-array-key",
+        "phpstan-assert-functions"
+      ],
       "fixture": "<?php use PHPUnit\\Framework\\Assert; $a = new ArrayObject(['k' => 'v']); Assert::assertArrayHasKey('k', $a); Assert::assertInstanceOf(ArrayObject::class, $a);",
       "semantics": "ArrayAccess is accepted, but the assertion must not turn the object into an array. User-defined offsetExists need not prove offsetGet is non-null.",
       "analyzer_expectation": "Keep object identity and do not infer an array shape on ArrayAccess.",
       "negative_control": "Returning ArrayObject or ArrayAccess as array after method or function assertArrayHasKey still fails. Calling a missing method still reports non-existent-method, and nullable offsetGet stays nullable. Missing offset fails at runtime.",
       "priority": "P1",
       "versions": "Analyzer and runtime conformance verified on Mago 1.60.2 / PHP 8.3 / PHPUnit 12.5.40 across method and function forms.",
-      "coverage": ["tests/fixtures/HasKeyArrayAccess.php", "tests/runtime/RuntimeContractTest.php", "tests/run.php"],
+      "coverage": [
+        "tests/fixtures/HasKeyArrayAccess.php",
+        "tests/runtime/RuntimeContractTest.php",
+        "tests/run.php"
+      ],
       "status": "covered"
     },
     {
       "id": "PHPUNIT-A006",
       "title": "Equality must not become identity narrowing",
-      "sources": ["phpunit-assertions"],
+      "sources": [
+        "phpunit-assertions"
+      ],
       "fixture": "<?php use PHPUnit\\Framework\\Assert; Assert::assertEquals(7, '7'); Assert::assertSame(7, '7');",
       "semantics": "The equality assertion passes; the identity assertion fails because the types differ.",
       "analyzer_expectation": "Do not narrow an actual string to integer merely because assertEquals used an integer expected value.",
       "negative_control": "Returning string, int|string, int|bool, or ?string as the expected literal type after this/self/static/Assert/function assertEquals retains invalid-return diagnostics, while assertSame narrows int|string to int. assertSame fails at runtime where assertEquals passes.",
       "priority": "P1",
       "versions": "Analyzer and runtime conformance verified on Mago 1.60.2 / PHP 8.3 / PHPUnit 12.5.40.",
-      "coverage": ["tests/fixtures/AssertEqualsNoNarrowing.php", "tests/fixtures/NativeAssertions.php", "tests/runtime/RuntimeContractTest.php", "tests/run.php"],
+      "coverage": [
+        "tests/fixtures/AssertEqualsNoNarrowing.php",
+        "tests/fixtures/NativeAssertions.php",
+        "tests/runtime/RuntimeContractTest.php",
+        "tests/run.php"
+      ],
       "status": "covered"
     },
     {
       "id": "PHPUNIT-A007",
       "title": "Literal assertArrayNotHasKey forbids asserted array key",
-      "sources": ["phpunit-assertions", "phpstan-assert-functions"],
+      "sources": [
+        "phpunit-assertions",
+        "phpstan-assert-functions"
+      ],
       "fixture": "<?php use PHPUnit\\Framework\\Assert; /** @param array{k?: string, other?: string} $a */ function check(array $a): void { Assert::assertArrayNotHasKey('k', $a); }",
       "semantics": "On normal return the literal key is absent on the array while unrelated optional keys remain optional and ArrayAccess objects keep their object type.",
       "analyzer_expectation": "Emit DoesNotHaveKey for literal string or integer keys on both Assert::assertArrayNotHasKey and PHPUnit\\Framework\\assertArrayNotHasKey.",
       "negative_control": "Reading the forbidden key reports undefined-string-array-index with the extension (vs possibly-undefined without); non-literal keys and unrelated keys stay possibly undefined; ArrayObject retains its methods.",
       "priority": "P1",
       "versions": "Verified on Mago 1.60.2 with PHPUnit 10.5, 11.5, and 12.5.",
-      "coverage": ["tests/fixtures/AssertionsParity.php", "tests/runtime/AssertionsParityTest.php", "tests/run.php"],
+      "coverage": [
+        "tests/fixtures/AssertionsParity.php",
+        "tests/runtime/AssertionsParityTest.php",
+        "tests/run.php"
+      ],
       "status": "covered"
     },
     {
       "id": "PHPUNIT-A008",
       "title": "Literal assertCount narrows empty and non-empty countables",
-      "sources": ["phpunit-assertions"],
+      "sources": [
+        "phpunit-assertions"
+      ],
       "fixture": "<?php use PHPUnit\\Framework\\Assert; /** @param list<string> $items @return non-empty-list<string> */ function check(array $items): array { Assert::assertCount(2, $items); return $items; }",
       "semantics": "A positive literal count proves the array or countable is non-empty; a zero literal count proves it is empty; non-literal counts prove neither.",
       "analyzer_expectation": "Emit CountabilityAssertion::NonEmpty for literal counts > 0 and SimpleAssertion::EmptyCountable for literal count 0 on both method and function forms.",
       "negative_control": "Count 0 and non-literal counts still reject returning non-empty-list; ArrayObject remains an object; disabling extensions restores invalid-return-statement on positive counts.",
       "priority": "P1",
       "versions": "Verified on Mago 1.60.2 with PHPUnit 10.5, 11.5, and 12.5.",
-      "coverage": ["tests/fixtures/AssertionsParity.php", "tests/runtime/AssertionsParityTest.php", "tests/run.php"],
+      "coverage": [
+        "tests/fixtures/AssertionsParity.php",
+        "tests/runtime/AssertionsParityTest.php",
+        "tests/run.php"
+      ],
       "status": "covered"
     },
     {
       "id": "PHPUNIT-A009",
       "title": "assertNotEmpty narrows arrays, strings, and nullable types",
-      "sources": ["phpunit-assertions"],
+      "sources": [
+        "phpunit-assertions"
+      ],
       "fixture": "<?php use PHPUnit\\Framework\\Assert; /** @param list<string> $items @return non-empty-list<string> */ function check(array $items): array { Assert::assertNotEmpty($items); return $items; }",
       "semantics": "PHPUnit's IsEmpty constraint checks Countable::count() === 0, EmptyIterator, or PHP empty(). Negating it proves non-empty arrays, non-empty strings, and non-null values.",
       "analyzer_expectation": "Emit SimpleAssertion::NonEmpty for Assert::assertNotEmpty and PHPUnit\\Framework\\assertNotEmpty when the installed PHPUnit method carries no native assertion.",
       "negative_control": "Disabling extensions restores invalid-return-statement and nullable-return-statement on list, string, and nullable targets; Countable objects retain their class methods; runtime tests confirm '0' and empty ArrayObject fail.",
       "priority": "P1",
       "versions": "Verified on Mago 1.60.2 with PHPUnit 10.5, 11.5, and 12.5.",
-      "coverage": ["tests/fixtures/AssertionsParity.php", "tests/runtime/AssertionsParityTest.php", "tests/run.php"],
+      "coverage": [
+        "tests/fixtures/AssertionsParity.php",
+        "tests/runtime/AssertionsParityTest.php",
+        "tests/run.php"
+      ],
       "status": "covered"
     },
     {
       "id": "PHPUNIT-A010",
       "title": "assertStringContainsString with non-empty needle narrows haystack",
-      "sources": ["phpunit-assertions"],
+      "sources": [
+        "phpunit-assertions"
+      ],
       "fixture": "<?php use PHPUnit\\Framework\\Assert; /** @return non-empty-string */ function check(string $haystack): string { Assert::assertStringContainsString('needle', $haystack); return $haystack; }",
       "semantics": "A string containing a non-empty substring cannot itself be empty, whereas an empty needle matches the empty string.",
       "analyzer_expectation": "Narrow $haystack to non-empty-string for assertStringContainsString and assertStringContainsStringIgnoringCase (method and function) only when $needle is definitely non-empty.",
       "negative_control": "An empty literal needle '' and a general string needle do not narrow $haystack; disabling extensions restores invalid-return-statement on non-empty needles; runtime test confirms assertStringContainsString('', '') passes while ('a', '') fails.",
       "priority": "P1",
       "versions": "Verified on Mago 1.60.2 with PHPUnit 10.5, 11.5, and 12.5.",
-      "coverage": ["tests/fixtures/AssertionsParity.php", "tests/runtime/AssertionsParityTest.php", "tests/run.php"],
+      "coverage": [
+        "tests/fixtures/AssertionsParity.php",
+        "tests/runtime/AssertionsParityTest.php",
+        "tests/run.php"
+      ],
       "status": "covered"
     },
     {
       "id": "PHPUNIT-A011",
       "title": "assertContainsOnly narrows iterable element types for literal types",
-      "sources": ["phpunit-assertions"],
+      "sources": [
+        "phpunit-assertions"
+      ],
       "fixture": "<?php use PHPUnit\\Framework\\Assert; /** @param iterable<mixed> $items */ function check(iterable $items): string { Assert::assertContainsOnly('string', $items); foreach ($items as $item) { return $item; } return ''; }",
       "semantics": "On PHPUnit 10 through 12, assertContainsOnly narrows iterable elements to the named native type or class-like type. PHPUnit 12 deprecates it and PHPUnit 13 removes it.",
       "analyzer_expectation": "Narrow $haystack to iterable<T> for literal native type keywords and existing class names on both method and function calls when no native assertion exists.",
       "negative_control": "A non-literal type string does not narrow $haystack; disabling extensions restores mixed-assignment, mixed-method-access, and mixed-return-statement diagnostics.",
       "priority": "P2",
       "versions": "Verified on Mago 1.60.2 with PHPUnit 10.5, 11.5, and 12.5; removed in PHPUnit 13.",
-      "coverage": ["tests/fixtures/AssertContainsOnly.php", "tests/run.php"],
+      "coverage": [
+        "tests/fixtures/AssertContainsOnly.php",
+        "tests/run.php"
+      ],
       "status": "covered"
     },
     {
       "id": "PHPUNIT-D001",
       "title": "Providers yield arrays with required test arguments",
-      "sources": ["phpunit-providers", "psalm-testcase"],
+      "sources": [
+        "phpunit-providers",
+        "psalm-testcase"
+      ],
       "fixture": "<?php use PHPUnit\\Framework\\TestCase; use PHPUnit\\Framework\\Attributes\\DataProvider; final class RowsTest extends TestCase { public static function rows(): iterable { yield [7]; } #[DataProvider('rows')] public function testRow(int $n, string $suffix = '', int ...$rest): void { self::assertSame(7, $n); } }",
       "semantics": "A provider returns iterable rows; each row is an array. Default and variadic parameters may be omitted, required parameters may not.",
       "analyzer_expectation": "Report required-argument and concrete type mismatches. Psalm issue names and its handling of untyped providers are not PHPUnit requirements.",
       "negative_control": "Remove the default from suffix, or yield scalar 7 instead of [7].",
       "priority": "P0",
       "versions": "Modern fixture uses public static and attributes. Psalm's non-static annotation examples must not be copied into PHPUnit 12+ fixtures.",
-      "coverage": ["tests/fixtures/DataProvider.php", "tests/fixtures/DataProviderTypes.php", "tests/fixtures/DataProviderYieldFrom.php"],
+      "coverage": [
+        "tests/fixtures/DataProvider.php",
+        "tests/fixtures/DataProviderTypes.php",
+        "tests/fixtures/DataProviderYieldFrom.php"
+      ],
       "status": "partial"
     },
     {
       "id": "PHPUNIT-D002",
       "title": "Providers execute before lifecycle initialization",
-      "sources": ["phpunit-providers"],
+      "sources": [
+        "phpunit-providers"
+      ],
       "fixture": "<?php use PHPUnit\\Framework\\TestCase; use PHPUnit\\Framework\\Attributes\\DataProvider; final class OrderTest extends TestCase { private static bool $ready = false; public static function setUpBeforeClass(): void { self::$ready = true; } public static function rows(): array { return [[self::$ready]]; } #[DataProvider('rows')] public function testOrder(bool $ready): void { self::assertFalse($ready); } }",
       "semantics": "Providers run before setUpBeforeClass and before the first setUp. Initialization knowledge cannot flow backwards into providers.",
       "analyzer_expectation": "Do not assume test lifecycle initialization in data provider bodies.",
       "negative_control": "A nullable static property assigned in setUpBeforeClass stays nullable inside the provider and reports a provider type mismatch for a non-null parameter; an uninitialized instance property still reports uninitialized-property. Runtime test proves provider executes strictly before setUpBeforeClass and setUp.",
       "priority": "P1",
       "versions": "Analyzer and runtime conformance verified on Mago 1.60.2 / PHP 8.3 / PHPUnit 12.5.40.",
-      "coverage": ["tests/fixtures/DataProviderLifecycleOrder.php", "tests/runtime/ProviderLifecycleOrderTest.php", "tests/run.php"],
+      "coverage": [
+        "tests/fixtures/DataProviderLifecycleOrder.php",
+        "tests/runtime/ProviderLifecycleOrderTest.php",
+        "tests/run.php"
+      ],
       "status": "covered"
     },
     {
       "id": "PHPUNIT-D003",
       "title": "Provider arguments precede dependency results",
-      "sources": ["phpunit-dependencies", "psalm-113"],
+      "sources": [
+        "phpunit-dependencies",
+        "psalm-113"
+      ],
       "fixture": "<?php use PHPUnit\\Framework\\Attributes\\DataProvider; use PHPUnit\\Framework\\Attributes\\Depends; use PHPUnit\\Framework\\TestCase; final class OrderTest extends TestCase { public function testSource(): string { return 'dependency'; } public static function rows(): array { return [['row', 42]]; } #[DataProvider('rows')] #[Depends('testSource')] public function testOrder(string $row, int $n, string $dependency): void { self::assertSame(['row', 42, 'dependency'], [$row, $n, $dependency]); } }",
       "semantics": "Positional provider arguments precede the results of same-class dependencies, which follow their attribute order. PHP accepts additional arguments beyond a user-defined method's declared parameters.",
       "analyzer_expectation": "Do not report missing provider arguments when same-class dependency results supply them. Continue checking positional provider argument types and missing arguments that dependencies cannot supply.",
       "negative_control": "Too few provider arguments after accounting for dependencies and an incompatible provider argument still produce diagnostics. Disable the extension and the provider diagnostics disappear.",
       "priority": "P0",
       "versions": "Positional rows and modern Depends attributes; runtime and Mago checks scoped to versions recorded in cycle 002. Named rows, other dependency attributes and annotations remain analyzer gaps.",
-      "coverage": ["tests/fixtures/DataProviderDepends.php", "tests/runtime/ProviderDependsTest.php", "tests/runtime-negative/ProviderDependsNamedTest.php", "tests/run.php"],
+      "coverage": [
+        "tests/fixtures/DataProviderDepends.php",
+        "tests/runtime/ProviderDependsTest.php",
+        "tests/runtime-negative/ProviderDependsNamedTest.php",
+        "tests/run.php"
+      ],
       "status": "partial"
     },
     {
       "id": "PHPUNIT-D004",
       "title": "Named provider arguments with same-class dependencies",
-      "sources": ["phpunit-dependencies", "phpunit-providers"],
+      "sources": [
+        "phpunit-dependencies",
+        "phpunit-providers"
+      ],
       "fixture": "<?php use PHPUnit\\Framework\\Attributes\\DataProvider; use PHPUnit\\Framework\\Attributes\\Depends; use PHPUnit\\Framework\\TestCase; final class NamedTest extends TestCase { public function testSource(): string { return 'dependency'; } public static function rows(): array { return [['row' => 'value']]; } #[DataProvider('rows')] #[Depends('testSource')] public function testNamed(string $row, string $dependency): void { self::assertSame(['value', 'dependency'], [$row, $dependency]); } }",
       "semantics": "PHPUnit 10.5 unpacks data provider rows with array_values(), so named rows plus dependencies execute positionally. PHPUnit 11 and later unpack with named arguments and append positional dependency results, which fails at runtime.",
       "analyzer_expectation": "Use the PhpUnitVersion signal (TestCase::expectUserDeprecationMessage added in 11.0.0): validate named rows positionally on 10.5 and report a provider diagnostic when named rows combine with method dependencies on 11+.",
       "negative_control": "On PHPUnit 11+, named rows with Depends report the unpacking error while a named row without Depends retains missing-parameter checks. On PHPUnit 10.5, valid positional mapping passes while a type-mismatched positional value reports a type error. With extensions disabled provider diagnostics disappear.",
       "priority": "P0",
       "versions": "Version-aware behavior verified via PhpUnitVersion on Mago 1.60.2 against PHPUnit 10.5, 11.5, and 12.5.",
-      "coverage": ["tests/fixtures/DataProviderDependsNamed.php", "tests/run.php", "tests/runtime-negative/ProviderDependsNamedTest.php"],
+      "coverage": [
+        "tests/fixtures/DataProviderDependsNamed.php",
+        "tests/run.php",
+        "tests/runtime-negative/ProviderDependsNamedTest.php"
+      ],
       "status": "covered"
     },
     {
       "id": "PHPUNIT-D005",
       "title": "Named provider arguments with variadic test parameters",
-      "sources": ["phpunit-providers", "psalm-testcase"],
+      "sources": [
+        "phpunit-providers",
+        "psalm-testcase"
+      ],
       "fixture": "<?php use PHPUnit\\Framework\\Attributes\\DataProvider; use PHPUnit\\Framework\\TestCase; final class VariadicNamedTest extends TestCase { public static function rows(): array { return [['n' => 1, 'first' => 'a', 'second' => 'b']]; } #[DataProvider('rows')] public function testVariadic(int $n, string ...$rest): void { self::assertSame(1, $n); } }",
       "semantics": "PHPUnit 10.5 strips keys via array_values() and passes all elements positionally into the variadic parameter. PHPUnit 11 and later unpack named arguments so unknown string keys collect into the variadic parameter and are type-checked against its type.",
       "analyzer_expectation": "On PHPUnit 11+, accept extra string keys for variadic test methods, check their types against the variadic parameter type, and still report missing required parameters. On PHPUnit 10.5, reconstruct PHP insertion order from literal array AST elements (and JSON object keys for TestWithJson) to run full positional type validation without KeyedArrayType alphabetical-sorting false positives, falling back to arity-only only for non-literal multi-key arrays.",
       "negative_control": "Wrong value types for variadic keys report type errors on both PHPUnit 10.5 and 11+; missing required parameters report errors on 11+; reordered literal rows report positional mismatches on 10.5 while valid literal and non-literal multi-key rows stay clean. Runtime test asserts both 10.5 and 11+ unpacking shapes.",
       "priority": "P1",
       "versions": "Verified on Mago 1.60.2 with PHPUnit 10.5, 11.5, and 12.5.",
-      "coverage": ["tests/fixtures/DataProviderVariadicNamed.php", "tests/runtime/ProviderVariadicNamedTest.php", "tests/run.php"],
+      "coverage": [
+        "tests/fixtures/DataProviderVariadicNamed.php",
+        "tests/runtime/ProviderVariadicNamedTest.php",
+        "tests/run.php"
+      ],
       "status": "covered"
     },
     {
       "id": "PHPUNIT-L001",
       "title": "TestCase setup initializes test properties",
-      "sources": ["psalm-testcase", "phpunit-providers"],
+      "sources": [
+        "psalm-testcase",
+        "phpunit-providers"
+      ],
       "fixture": "<?php use PHPUnit\\Framework\\TestCase; final class SetupTest extends TestCase { private string $value; protected function setUp(): void { $this->value = 'ready'; } public function testValue(): void { self::assertSame('ready', $this->value); } }",
       "semantics": "TestCase setup runs before a test. An unrelated class's method called setUp has no PHPUnit lifecycle meaning.",
       "analyzer_expectation": "Accept unconditional setup assignment, including inherited setup. Do not suppress missing initialization merely because setUp exists.",
       "negative_control": "Remove the assignment, or remove TestCase inheritance.",
       "priority": "P0",
       "versions": "Existing suite green across cycle 001's seven combinations on Mago 1.58.2. Conditional assignments remain an explicitly documented Mago limitation.",
-      "coverage": ["tests/fixtures/SetUpPositive.php", "tests/fixtures/SetUpCounter.php", "tests/fixtures/SetUpInherited.php", "tests/fixtures/SetUpNotTestCase.php"],
+      "coverage": [
+        "tests/fixtures/SetUpPositive.php",
+        "tests/fixtures/SetUpCounter.php",
+        "tests/fixtures/SetUpInherited.php",
+        "tests/fixtures/SetUpNotTestCase.php"
+      ],
       "status": "covered"
     },
     {
       "id": "PHPUNIT-L002",
       "title": "Before attributes initialize TestCase properties",
-      "sources": ["psalm-testcase", "phpunit-providers"],
+      "sources": [
+        "psalm-testcase",
+        "phpunit-providers"
+      ],
       "fixture": "<?php use PHPUnit\\Framework\\TestCase; use PHPUnit\\Framework\\Attributes\\Before; final class HookTest extends TestCase { private string $ready; #[Before] protected function prepare(): void { $this->ready = 'ready'; } public function testReady(): void { self::assertSame('ready', $this->ready); } }",
       "semantics": "PHPUnit invokes Before hooks before each test, including inherited hooks. Multiple hooks and their helper methods can initialize instance properties.",
       "analyzer_expectation": "Treat resolved PHPUnit Before attributes on TestCase methods as property initializers using the existing SDK initializer provider. Preserve diagnostics for properties that no initializer assigns.",
       "negative_control": "Empty Before hook, After hook, unrelated attribute named Before, and non-TestCase class each retain one initialization error. Disabling extensions restores all eight errors in the fixture. Runtime controls prove late and unrelated hooks have not initialized properties during the test.",
       "priority": "P0",
       "versions": "Red before implementation and green after it on Mago 1.60.2 / PHP 8.4 / PHPUnit 12.5.40. Psalm pinned TestCase.feature supplies the inherited Before hypothesis. Annotation-based @before and hook priority/order inference are outside this case.",
-      "coverage": ["tests/fixtures/BeforeInitializer.php", "tests/runtime/BeforeInitializerTest.php", "tests/run.php"],
+      "coverage": [
+        "tests/fixtures/BeforeInitializer.php",
+        "tests/runtime/BeforeInitializerTest.php",
+        "tests/run.php"
+      ],
       "status": "covered"
     },
     {
       "id": "PHPUNIT-D006",
       "title": "TestWith and TestWithJson validate inline rows against test parameters",
-      "sources": ["phpunit-providers"],
+      "sources": [
+        "phpunit-providers"
+      ],
       "fixture": "<?php use PHPUnit\\Framework\\Attributes\\TestWith; use PHPUnit\\Framework\\Attributes\\TestWithJson; use PHPUnit\\Framework\\TestCase; final class InlineRowsTest extends TestCase { #[TestWith([1, 'ok'])] #[TestWithJson('[2, \"ok\"]')] public function testRow(int $n, string $label): void {} }",
       "semantics": "TestWith passes an inline PHP array and TestWithJson passes a JSON-decoded array as test arguments, respecting dependency slots and named keys.",
       "analyzer_expectation": "Report arity mismatches, type mismatches, unknown or missing named keys, invalid JSON, and non-array JSON payloads while accepting valid rows.",
       "negative_control": "Wrong arity, incompatible types, missing named keys, malformed JSON, and scalar JSON payloads report diagnostics; disabling extensions removes all twelve.",
       "priority": "P1",
       "versions": "Verified on Mago 1.60.2 / PHP 8.3 / PHPUnit 12.5.40.",
-      "coverage": ["tests/fixtures/TestWithAttributes.php", "tests/runtime/TestWithAndDependencyVariantsTest.php", "tests/run.php"],
+      "coverage": [
+        "tests/fixtures/TestWithAttributes.php",
+        "tests/runtime/TestWithAndDependencyVariantsTest.php",
+        "tests/run.php"
+      ],
       "status": "covered"
     },
     {
       "id": "PHPUNIT-D007",
       "title": "Method dependency variants supply arguments while class dependencies do not",
-      "sources": ["phpunit-dependencies"],
+      "sources": [
+        "phpunit-dependencies"
+      ],
       "fixture": "<?php use PHPUnit\\Framework\\Attributes\\DataProvider; use PHPUnit\\Framework\\Attributes\\DependsExternal; use PHPUnit\\Framework\\TestCase; final class DepVariantTest extends TestCase { public static function rows(): array { return [['a']]; } #[DataProvider('rows')] #[DependsExternal(OtherTest::class, 'testSeed')] public function testDep(string $a, string $seed): void {} }",
       "semantics": "Depends, DependsExternal, and their DeepClone/ShallowClone variants pass dependency return values after provider arguments; DependsOnClass variants do not pass arguments.",
       "analyzer_expectation": "Count all six method-dependency attributes as supplied argument slots and do not count DependsOnClass variants.",
       "negative_control": "DependsOnClass, DependsOnClassUsingDeepClone, and DependsOnClassUsingShallowClone still report missing required arguments; runtime test asserts func_num_args() === 1.",
       "priority": "P1",
       "versions": "Verified on Mago 1.60.2 / PHP 8.3 / PHPUnit 12.5.40.",
-      "coverage": ["tests/fixtures/DataProviderDependencyVariants.php", "tests/runtime/TestWithAndDependencyVariantsTest.php", "tests/run.php"],
+      "coverage": [
+        "tests/fixtures/DataProviderDependencyVariants.php",
+        "tests/runtime/TestWithAndDependencyVariantsTest.php",
+        "tests/run.php"
+      ],
       "status": "covered"
     },
     {
       "id": "PHPUNIT-D008",
       "title": "DataProviderExternal validates providers defined in separate files",
-      "sources": ["phpunit-providers"],
+      "sources": [
+        "phpunit-providers"
+      ],
       "fixture": "<?php use PHPUnit\\Framework\\Attributes\\DataProviderExternal; use PHPUnit\\Framework\\TestCase; final class CrossFileTest extends TestCase { #[DataProviderExternal(ExternalProvider::class, 'rows')] public function testRow(int $n, string $label): void {} }",
       "semantics": "DataProviderExternal can reference a public static method declared in another file.",
       "analyzer_expectation": "Resolve cross-file external providers in AfterAnalysisHook and validate row arity and types against the test signature.",
       "negative_control": "Valid cross-file rows produce zero diagnostics; invalid rows report arity and type errors in ExternalCrossFileProvider.php; disabling extensions removes all three.",
       "priority": "P1",
       "versions": "Verified on Mago 1.60.2 / PHP 8.3 / PHPUnit 12.5.40.",
-      "coverage": ["tests/fixtures/DataProviderExternalCrossFile.php", "tests/fixtures/ExternalCrossFileProvider.php", "tests/runtime/TestWithAndDependencyVariantsTest.php", "tests/run.php"],
+      "coverage": [
+        "tests/fixtures/DataProviderExternalCrossFile.php",
+        "tests/fixtures/ExternalCrossFileProvider.php",
+        "tests/runtime/TestWithAndDependencyVariantsTest.php",
+        "tests/run.php"
+      ],
       "status": "covered"
     },
     {
       "id": "PHPUNIT-D009",
       "title": "Method dependency return types are validated against receiving test parameters",
-      "sources": ["phpunit-dependencies"],
+      "sources": [
+        "phpunit-dependencies"
+      ],
       "fixture": "<?php use PHPUnit\\Framework\\Attributes\\Depends; use PHPUnit\\Framework\\TestCase; final class DepTypesTest extends TestCase { public function testSeed(): int { return 7; } #[Depends('testSeed')] public function testConsumer(int $seed): void {} }",
       "semantics": "Method dependencies (Depends, DependsExternal, and their DeepClone/ShallowClone variants) pass producer return values after provider arguments, or starting at parameter 0 when no provider is present; PHPUnit versions with PassedTests::hasReturnValue() omit void and never producers from dependencyInput.",
       "analyzer_expectation": "Read producer return types via codebase->getMethod() and report concrete mismatches against the receiving parameter while skipping void/never producers when PassedTests::hasReturnValue() exists and staying conservative on mixed or untyped producers and ordering-only consumers with no parameters.",
       "negative_control": "Mismatches across Depends, DependsExternal, DeepClone/ShallowClone variants, nullable-into-non-null, after DataProvider, and after TestWith report 9 diagnostics; valid, ordering-only, nullable-into-nullable, mixed, and untyped cases report 0; disabling extensions removes all 9.",
       "priority": "P1",
       "versions": "Verified on Mago 1.60.2 / PHP 8.3 / PHPUnit 12.5.",
-      "coverage": ["tests/fixtures/DependencyReturnTypes.php", "tests/runtime/TestWithAndDependencyVariantsTest.php", "tests/run.php"],
+      "coverage": [
+        "tests/fixtures/DependencyReturnTypes.php",
+        "tests/runtime/TestWithAndDependencyVariantsTest.php",
+        "tests/run.php"
+      ],
       "status": "covered"
     },
     {
       "id": "PHPUNIT-M001",
       "title": "createMockForIntersectionOfInterfaces and createStubForIntersectionOfInterfaces return intersected double types",
-      "sources": ["psalm-intersection-mocks"],
+      "sources": [
+        "psalm-intersection-mocks"
+      ],
       "fixture": "<?php use PHPUnit\\Framework\\TestCase; interface A { public function a(): int; } interface B { public function b(): void; } final class T extends TestCase { public function testIt(): void { $m = $this->createMockForIntersectionOfInterfaces([A::class, B::class]); $m->b(); } }",
       "semantics": "TestCase::createMockForIntersectionOfInterfaces() and createStubForIntersectionOfInterfaces() accept a list of at least two distinct interfaces and return a MockObject or Stub implementing every listed interface.",
       "analyzer_expectation": "Narrow the return type to I1&I2&...&MockObject or I1&I2&...&Stub for literal lists of at least two distinct existing interfaces, and fall back to PHPUnit's declared return type for open arrays, single-element lists, duplicate interfaces, or non-interface class names.",
       "negative_control": "Calling an unknown method on the intersection mock or expects() on an intersection stub reports non-existent-method; open lists, single-element lists, duplicate interfaces, and non-interface entries fall back to MockObject and report non-existent-method on interface calls.",
       "priority": "P0",
       "versions": "Verified on Mago 1.60.2 / PHP 8.3 against PHPUnit 10.5, 11.5, 12.5, and 13.0.",
-      "coverage": ["tests/fixtures/IntersectionMocks.php", "tests/runtime/Wave4ContractsRuntimeTest.php", "tests/run.php"],
+      "coverage": [
+        "tests/fixtures/IntersectionMocks.php",
+        "tests/runtime/Wave4ContractsRuntimeTest.php",
+        "tests/run.php"
+      ],
       "status": "covered"
     },
     {
       "id": "PHPUNIT-C001",
       "title": "Coverage attributes validate target classes, traits, methods, and functions against the codebase",
-      "sources": ["psalm-covers-targets"],
+      "sources": [
+        "psalm-covers-targets"
+      ],
       "fixture": "<?php use PHPUnit\\Framework\\Attributes\\CoversClass; use PHPUnit\\Framework\\TestCase; #[CoversClass(Missing::class)] final class T extends TestCase {}",
       "semantics": "CoversClass, UsesClass, CoversTrait, UsesTrait, CoversMethod, UsesMethod, CoversFunction, and UsesFunction attributes must reference existing classes, traits, methods, or functions.",
       "analyzer_expectation": "Report phpunit-invalid-covers-target when a coverage attribute on a TestCase class references a nonexistent class, trait, method (including inherited and trait methods), or function.",
       "negative_control": "ValidCoverageTargetsTest (own method, inherited method, trait method, protected method, case-insensitive method, and namespaced function) produces zero diagnostics; InvalidCoverageTargetsTest reports all eight missing targets; disabling extensions removes all eight diagnostics.",
       "priority": "P1",
       "versions": "Verified on Mago 1.60.2 / PHP 8.3 / PHPUnit 12.5.",
-      "coverage": ["tests/fixtures/CoverageTargets.php", "tests/runtime/Wave4ContractsRuntimeTest.php", "tests/run.php"],
+      "coverage": [
+        "tests/fixtures/CoverageTargets.php",
+        "tests/runtime/Wave4ContractsRuntimeTest.php",
+        "tests/run.php"
+      ],
       "status": "covered"
     },
     {
       "id": "PHPUNIT-M002",
       "title": "MockObject::method() and Stub::method() validate literal method names against the mocked type",
-      "sources": ["psalm-mock-method"],
+      "sources": [
+        "psalm-mock-method"
+      ],
       "fixture": "<?php use PHPUnit\\Framework\\TestCase; interface Mailer { public function send(): bool; } final class T extends TestCase { public function testIt(): void { $this->createStub(Mailer::class)->method('typo'); } }",
       "semantics": "Configuring a nonexistent method on a PHPUnit MockObject or Stub throws MethodCannotBeConfiguredException at runtime, except for __call targets, property hooks ($prop::get/set), and Traversable iterator methods on direct Traversable interfaces.",
       "analyzer_expectation": "Report phpunit-unknown-mocked-method for literal method names on typed MockObject&T and Stub&T receivers (including union members) when T has a complete hierarchy, no __call, no matching @method pseudo-method, and is not a direct Traversable iterator method.",
       "negative_control": "Valid method names, case-insensitive matches, dynamic string variables, property hooks, @method pseudo-methods, __call classes, and direct Traversable current()/rewind() calls report zero issues; typos on MockObject, Stub, typed properties, IteratorAggregate::current(), and union members report 7 diagnostics.",
       "priority": "P1",
       "versions": "Verified on Mago 1.60.2 / PHP 8.3 / PHPUnit 12.5.",
-      "coverage": ["tests/fixtures/MockMethodCalls.php", "tests/runtime/Wave4ContractsRuntimeTest.php", "tests/run.php"],
+      "coverage": [
+        "tests/fixtures/MockMethodCalls.php",
+        "tests/runtime/Wave4ContractsRuntimeTest.php",
+        "tests/run.php"
+      ],
       "status": "covered"
     },
     {
       "id": "PHPUNIT-D010",
       "title": "DataProvider and DataProviderExternal attributes validate method existence, public visibility, static modifier, and syntax",
-      "sources": ["phpunit-data-provider-api", "phpunit-providers"],
+      "sources": [
+        "phpunit-data-provider-api",
+        "phpunit-providers"
+      ],
       "fixture": "<?php use PHPUnit\\Framework\\Attributes\\DataProvider; use PHPUnit\\Framework\\TestCase; final class T extends TestCase { #[DataProvider('missingRows')] public function testIt(string $v): void {} }",
       "semantics": "PHPUnit requires #[DataProvider] and #[DataProviderExternal] targets to exist as public static methods and rejects Class::method strings inside #[DataProvider]. Abstract test base classes may declare #[DataProvider] for methods implemented by concrete subclasses.",
       "analyzer_expectation": "Report phpunit-data-provider when #[DataProvider] uses Class::method syntax, when a referenced class or method does not exist (skipping missing local methods on abstract TestCase classes), or when the target method is non-public or non-static.",
       "negative_control": "Valid local, inherited, abstract-subclass, and external providers report zero diagnostics; missing, private, protected, non-static, Class::method, and missing external class/method cases report 9 diagnostics; disabling extensions removes all 9.",
       "priority": "P1",
       "versions": "Verified on Mago 1.60.2 / PHP 8.3 against PHPUnit 10.5 and 12.5.",
-      "coverage": ["tests/fixtures/DataProviderDeclarations.php", "tests/run.php"],
+      "coverage": [
+        "tests/fixtures/DataProviderDeclarations.php",
+        "tests/run.php"
+      ],
       "status": "covered"
     },
     {
       "id": "PHPUNIT-M003",
       "title": "MockBuilder onlyMethods()/addMethods() and willReturn()/willReturnOnConsecutiveCalls() validate method and return-type contracts",
-      "sources": ["phpunit-configurable-method", "psalm-mock-method"],
+      "sources": [
+        "phpunit-configurable-method",
+        "psalm-mock-method"
+      ],
       "fixture": "<?php use PHPUnit\\Framework\\TestCase; interface Gate { public function charge(): string; } final class T extends TestCase { public function testIt(): void { $this->createStub(Gate::class)->method('charge')->willReturn(123); } }",
       "semantics": "MockBuilder::onlyMethods() throws CannotUseOnlyMethodsException for nonexistent methods (and addMethods() on PHPUnit 10/11 rejects existing methods). InvocationStubber/InvocationMocker willReturn() throws IncompatibleReturnValueException when configured values contradict the method's native declared return type (including void/never), while willReturnOnConsecutiveCalls() throws TypeError on non-void return mismatches at invocation time and ignores stub values on void methods.",
       "analyzer_expectation": "Report phpunit-unknown-mocked-method for missing methods in onlyMethods(), phpunit-invalid-mock-builder-method for existing methods in addMethods(), and phpunit-incompatible-mock-return for values disjoint from the native declared return type (including unpacked static tuples, named constraint arguments on method(), willReturn() on void/never, and willReturnOnConsecutiveCalls() on never) while staying conservative on mixed, untyped, __call, dynamic unpacked arrays, void with willReturnOnConsecutiveCalls(), and partially overlapping unions.",
       "negative_control": "Valid onlyMethods(), compatible return values, unpacked string tuples and dynamic lists, void willReturnOnConsecutiveCalls(), nullable unions, subclasses, untyped, and mixed methods report zero issues; 1 undefined onlyMethods() entry and 8 incompatible willReturn/willReturnOnConsecutiveCalls calls report; runtime tests confirm PHPUnit throws CannotUseOnlyMethodsException, IncompatibleReturnValueException, and TypeError while allowing void willReturnOnConsecutiveCalls(null).",
       "priority": "P1",
       "versions": "Verified on Mago 1.60.2 / PHP 8.3 against PHPUnit 10.5 and 12.5.",
-      "coverage": ["tests/fixtures/MockExpectationContracts.php", "tests/runtime/Wave5ContractsRuntimeTest.php", "tests/run.php"],
+      "coverage": [
+        "tests/fixtures/MockExpectationContracts.php",
+        "tests/runtime/Wave5ContractsRuntimeTest.php",
+        "tests/run.php"
+      ],
       "status": "covered"
     },
     {
       "id": "PHPUNIT-A012",
       "title": "assertStringStartsWith, assertStringEndsWith, assertJson, and integer bound assertions narrow target types",
-      "sources": ["phpunit-assert-json", "phpunit-assert-starts-with", "phpunit-assertions"],
+      "sources": [
+        "phpunit-assert-json",
+        "phpunit-assert-starts-with",
+        "phpunit-assertions"
+      ],
       "fixture": "<?php use PHPUnit\\Framework\\Assert; /** @return positive-int */ function check(int $n): int { Assert::assertGreaterThan(0, $n); return $n; }",
       "semantics": "A string starting or ending with a non-empty affix or containing valid JSON cannot be empty. Comparing a pure int against a literal int bound via assertGreaterThan/GreaterThanOrEqual/LessThan/LessThanOrEqual narrows its integer range without altering float or mixed targets. assertObjectHasProperty has no PropertyExists assertion in Mago 1.60.2 SDK.",
       "analyzer_expectation": "Emit non-empty-string assertions for assertStringStartsWith/assertStringEndsWith (non-empty affix) and assertJson, and IntegerAssertion bounds for pure-int targets on both method and function forms.",
       "negative_control": "Float targets stay float; dynamic prefixes, non-literal bounds, and insufficient bounds (> -1 for positive-int) retain 3 invalid-return-statement diagnostics; disabling extensions restores 15 invalid-return-statement diagnostics; runtime tests confirm empty strings fail affix and JSON assertions.",
       "priority": "P1",
       "versions": "Verified on Mago 1.60.2 / PHP 8.3 against PHPUnit 10.5 and 12.5.",
-      "coverage": ["tests/fixtures/Wave5Assertions.php", "tests/runtime/Wave5ContractsRuntimeTest.php", "tests/run.php"],
+      "coverage": [
+        "tests/fixtures/Wave5Assertions.php",
+        "tests/runtime/Wave5ContractsRuntimeTest.php",
+        "tests/run.php"
+      ],
       "status": "covered"
+    },
+    {
+      "id": "PHPUNIT-M008",
+      "title": "Wave 8 mock call contracts and exception boundaries",
+      "fixture": "<?php\n\ndeclare(strict_types=1);\n\nnamespace Wave8Mocks;\n\nuse PHPUnit\\Framework\\MockObject\\MockObject;\nuse PHPUnit\\Framework\\TestCase;\n\ninterface Service { public function run(): string; }\ninterface Other { public function other(): void; }\nclass Subject\n{\n    public function okay(): string { return 'ok'; }\n    final public function locked(): string { return 'locked'; }\n    private function hidden(): void {}\n    protected function guarded(): void {}\n    public function __construct() {}\n    public function __destruct() {}\n}\nclass ApplicationException extends \\RuntimeException {}\nclass Application\n{\n    /** @throws \\PHPUnit\\Framework\\AssertionFailedError */\n    public function frameworkFailure(): void { throw new \\PHPUnit\\Framework\\AssertionFailedError(); }\n}\nfunction acceptsService(Service $service): void {}\nfunction acceptsOther(Other $other): void {}\nfinal class MockContracts extends TestCase\n{\n    /** @param Service|MockObject $legacy */\n    public function testLegacy(Service|MockObject $legacy): void\n    {\n        $legacy->method('run')->willReturn('yes'); // legacy-method\n        $legacy->expects(self::once())->method('run'); // legacy-expects\n        acceptsService($legacy); // legacy-pass\n        acceptsOther($legacy); // unrelated-pass\n    }\n    /** @param Service|Other|MockObject $unrelated */\n    public function testUnrelated(Service|Other|MockObject $unrelated): void\n    {\n        acceptsService($unrelated); // union-wrong-target\n    }\n    public function testPlain(Service $plain): void\n    {\n        $plain->method('run'); // plain-method\n        $plain->expects(self::once()); // plain-expects\n    }\n    public function testMethods(): void\n    {\n        $stub = $this->createStub(Subject::class);\n        $stub->method('okay')->willReturn('fine'); // allowed-method\n        $stub->method('locked'); // final-method\n        $stub->method('hidden'); // private-method\n        $stub->method('guarded'); // protected-method\n        $stub->method('__construct'); // constructor-method\n        $stub->method('__destruct'); // destructor-method\n        $stub->method('absent'); // missing-method\n    }\n    public function testExceptions(Application $app): void\n    {\n        $app->frameworkFailure(); // test-framework-exception\n        $this->applicationFailure(); // test-application-exception\n    }\n    /** @throws ApplicationException */\n    private function applicationFailure(): void { throw new ApplicationException(); }\n}\nfunction outside(Application $app): void\n{\n    $app->frameworkFailure(); // outside-framework-exception\n}\nfunction plainOutside(Service $plain): void\n{\n    $plain->method('run'); // outside-plain\n}\n",
+      "semantics": "Typed intersections and legacy target|MockObject unions carry the mock API; unrelated unions and application exceptions remain errors. Final/private/lifecycle methods cannot be configured.",
+      "analyzer_expectation": "One actionable plain-type diagnostic; reject non-configurable methods; preserve unrelated argument and thrown-type diagnostics.",
+      "negative_control": "Real method names pass; unrelated union members and application exceptions remain errors; framework exceptions outside test classes remain errors.",
+      "versions": "Mago 1.60.2 and 1.61.0; PHPUnit 10.5, 11.5, 12.x, 13.x",
+      "status": "partial",
+      "priority": "P1",
+      "sources": [
+        "phpunit-wave8-mock-generator"
+      ],
+      "coverage": [
+        "tests/wave8-mocks.php",
+        "tests/runtime/Wave8MocksTest.php",
+        "tests/wave8/mocks/MockContracts.php",
+        "tests/wave8/mocks/PartialContracts.php",
+        "tests/wave8/mocks/TraitContracts.php"
+      ]
     }
   ]
 }

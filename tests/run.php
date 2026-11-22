@@ -970,6 +970,15 @@ if ($failures > 0) {
     exit(1);
 }
 
+foreach (glob(__DIR__ . '/wave8-*.php') as $contract) {
+    $result = run([PHP_BINARY, $contract]);
+    fwrite(STDOUT, $result['stdout']);
+    fwrite(STDERR, $result['stderr']);
+    if ($result['exit'] !== 0) {
+        exit(1);
+    }
+}
+
 fwrite(STDOUT, "PASS\n");
 exit(0);
 

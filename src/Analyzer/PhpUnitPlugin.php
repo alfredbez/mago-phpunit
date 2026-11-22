@@ -15,6 +15,9 @@ use AlfredBez\MagoPhpunit\Analyzer\Providers\MockMethodCallHook;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\PhpUnitFunctionAssertions;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\PhpUnitMethodAssertions;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\SetUpInitializer;
+use AlfredBez\MagoPhpunit\Analyzer\Providers\TraitDoubleReturnTypeProvider;
+use AlfredBez\MagoPhpunit\Analyzer\Providers\LegacyMockCalls;
+use AlfredBez\MagoPhpunit\Analyzer\Providers\TestExceptionFilter;
 use Mago\Sdk\Analyzer\Plugin;
 use Mago\Sdk\Analyzer\PluginDefinition;
 use Mago\Sdk\Analyzer\PluginRegistry;
@@ -34,6 +37,7 @@ final class PhpUnitPlugin implements Plugin
     public function register(PluginRegistry $registry): void
     {
         $dataProviders = new DataProviderArguments();
+        $legacyMocks = new LegacyMockCalls();
         $registry->enableProviderMemoization();
         $registry->registerMethodAssertionProvider(new AssertArrayHasKeyAssertion());
         $registry->registerFunctionAssertionProvider(new AssertArrayHasKeyFunctionAssertion());
@@ -41,6 +45,11 @@ final class PhpUnitPlugin implements Plugin
         $registry->registerFunctionAssertionProvider(new PhpUnitFunctionAssertions());
         $registry->registerMethodAssertionProvider(new ContainsOnlyInstancesAssertion());
         $registry->registerMethodReturnTypeProvider(new IntersectionMockReturnTypeProvider());
+        $registry->registerMethodReturnTypeProvider(new TraitDoubleReturnTypeProvider());
+        $registry->registerMethodReturnTypeProvider(new \AlfredBez\MagoPhpunit\Analyzer\Providers\LegacyMockReturnTypeProvider());
+        $registry->registerNodeAnalysisHook($legacyMocks);
+        $registry->registerIssueFilterHook(new \AlfredBez\MagoPhpunit\Analyzer\Providers\LegacyMockIssueFilter());
+        $registry->registerIssueFilterHook(new TestExceptionFilter());
         $registry->registerClassInitializerProvider(new SetUpInitializer());
         $registry->registerClassLikeAnalysisHook($dataProviders);
         $registry->registerClassLikeAnalysisHook(new CoverageTargetsHook());

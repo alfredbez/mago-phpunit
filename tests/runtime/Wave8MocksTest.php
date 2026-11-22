@@ -28,6 +28,11 @@ trait Wave8ConcreteTrait
     abstract public function abstractWork(): string;
 }
 
+trait Wave8ObjectTrait
+{
+    public function concrete(): string { return 'object'; }
+}
+
 final class Wave8MocksTest extends TestCase
 {
     public function testPublicMethodCanBeConfigured(): void
@@ -74,7 +79,7 @@ final class Wave8MocksTest extends TestCase
         $mock->method('abstractWork')->willReturn('mock');
         self::assertSame('trait', $mock->concrete());
         self::assertSame('mock', $mock->abstractWork());
-        $object = $this->getObjectForTrait(Wave8ConcreteTrait::class);
-        self::assertSame('trait', $object->concrete());
+        $object = $this->getObjectForTrait(Wave8ObjectTrait::class);
+        self::assertSame('object', $object->concrete());
     }
 }

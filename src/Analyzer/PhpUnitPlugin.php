@@ -9,6 +9,7 @@ use AlfredBez\MagoPhpunit\Analyzer\Providers\AssertArrayHasKeyFunctionAssertion;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\ContainsOnlyInstancesAssertion;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\CoverageTargetsHook;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\DataProviderArguments;
+use AlfredBez\MagoPhpunit\Analyzer\Providers\ExactArrayCountReturnTypeProvider;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\IntersectionMockReturnTypeProvider;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\MockBuilderAndExpectationHook;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\MockMethodCallHook;
@@ -43,6 +44,7 @@ final class PhpUnitPlugin implements Plugin
         $registry->registerFunctionAssertionProvider(new AssertArrayHasKeyFunctionAssertion());
         $registry->registerMethodAssertionProvider(new PhpUnitMethodAssertions());
         $registry->registerFunctionAssertionProvider(new PhpUnitFunctionAssertions());
+        $registry->registerFunctionReturnTypeProvider(new ExactArrayCountReturnTypeProvider());
         $registry->registerMethodAssertionProvider(new ContainsOnlyInstancesAssertion());
         $registry->registerMethodReturnTypeProvider(new IntersectionMockReturnTypeProvider());
         $registry->registerMethodReturnTypeProvider(new TraitDoubleReturnTypeProvider());

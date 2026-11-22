@@ -87,11 +87,7 @@ final class MockMethodCallHook implements MethodCallAnalysisHook
                 $magicChecks[] = new MemberIdentifier($className, '__call');
             }
 
-            foreach ($context->codebase->checkMultipleMethodsExist($magicChecks) as $hasMagic) {
-                if ($hasMagic) {
-                    continue 2;
-                }
-            }
+            $hasMagic = in_array(true, $context->codebase->checkMultipleMethodsExist($magicChecks), true);
 
             $pseudoIndex = [];
             $allowsTraversableIterator = false;
@@ -112,12 +108,6 @@ final class MockMethodCallHook implements MethodCallAnalysisHook
                 }
 
                 $lowerMethod = strtolower($methodName);
-                if (isset($pseudoIndex[$lowerMethod])) {
-                    continue;
-                }
-                if ($allowsTraversableIterator && isset(self::TRAVERSABLE_ITERATOR_METHODS[$lowerMethod])) {
-                    continue;
-                }
 
                 $checks = [];
                 foreach ($targets as $className) {
@@ -128,10 +118,11 @@ final class MockMethodCallHook implements MethodCallAnalysisHook
                 $exists = $context->codebase->checkMultipleMethodsExist($checks);
                 $methods = $context->codebase->getMultipleMethods($checks);
                 $reason = null;
+                $allowed = false;
                 foreach ($methods as $index => $method) {
                     if ($method === null) {
                         if ($exists[$index] ?? false) {
-                            continue 2;
+                            $allowed = true;
                         }
                         continue;
                     }
@@ -140,7 +131,7 @@ final class MockMethodCallHook implements MethodCallAnalysisHook
                     } elseif ($method->visibility === Visibility::Protected && !$partial) {
                         $reason = 'protected methods require an explicit partial mock';
                     } else {
-                        continue 2;
+                        $allowed = true;
                     }
                 }
                 if ($reason !== null) {
@@ -154,7 +145,8 @@ final class MockMethodCallHook implements MethodCallAnalysisHook
                     );
                     continue;
                 }
-                if ($partial) {
+                if ($allowed || $partial || $hasMagic || isset($pseudoIndex[$lowerMethod])
+                    || ($allowsTraversableIterator && isset(self::TRAVERSABLE_ITERATOR_METHODS[$lowerMethod]))) {
                     continue;
                 }
 

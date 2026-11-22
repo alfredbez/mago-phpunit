@@ -17,6 +17,11 @@ class Wave8MockTarget
     public function __destruct() {}
 }
 
+class Wave8MagicMockTarget extends Wave8MockTarget
+{
+    public function __call(string $method, array $arguments): mixed { return null; }
+}
+
 trait Wave8ConcreteTrait
 {
     public function concrete(): string { return 'trait'; }
@@ -44,6 +49,13 @@ final class Wave8MocksTest extends TestCase
             }
             self::assertTrue($caught, $method);
         }
+    }
+
+    public function testMagicCallsDoNotMakeFinalMethodsConfigurable(): void
+    {
+        $stub = $this->createStub(Wave8MagicMockTarget::class);
+        $this->expectException(MethodCannotBeConfiguredException::class);
+        $stub->method('locked');
     }
 
     public function testExplicitPartialMockSupportsProtectedMethods(): void

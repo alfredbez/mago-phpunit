@@ -18,6 +18,12 @@ class Subject
     public function __construct() {}
     public function __destruct() {}
 }
+class MagicSubject
+{
+    final public function locked(): void {}
+    private function hidden(): void {}
+    public function __call(string $method, array $arguments): mixed { return null; }
+}
 class ApplicationException extends \RuntimeException {}
 class Application
 {
@@ -59,6 +65,10 @@ final class MockContracts extends TestCase
     public function testMethods(): void
     {
         $stub = $this->createStub(Subject::class);
+        $magic = $this->createStub(MagicSubject::class);
+        $magic->method('locked'); // magic-final
+        $magic->method('hidden'); // magic-private
+        $magic->method('dynamicMethod'); // magic-dynamic
         $stub->method('okay')->willReturn('fine'); // allowed-method
         $stub->method('locked'); // final-method
         $stub->method('hidden'); // private-method

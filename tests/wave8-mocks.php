@@ -65,6 +65,20 @@ foreach ([false, true] as $disabled) {
         if ($actual !== $expected) { fwrite(STDERR, "FAIL disabled=" . (int)$disabled . " {$marker} {$code} expected {$expected} got {$actual}\n"); $failures++; }
     }
     if (!$disabled) {
+        $positiveMarkers = ['legacy-method', 'legacy-expects', 'legacy-pass', 'captured-union', 'allowed-method', 'partial-protected', 'partial-unknown', 'magic-dynamic', 'test-framework-exception'];
+        foreach ($issues as $issue) {
+            $primary = $issue['annotations'][0];
+            foreach ($issue['annotations'] as $candidate) { if ($candidate['kind'] === 'Primary') { $primary = $candidate; break; } }
+            $start = $primary['span']['start'];
+            $line = isset($start['column']) ? $start['line'] : $start['line'] + 1;
+            $contents = file($primary['span']['file_id']['name']);
+            foreach ($positiveMarkers as $marker) {
+                if (preg_match('/\/\/ ' . preg_quote($marker, '/') . '\s*$/', $contents[$line - 1] ?? '') === 1) {
+                    fwrite(STDERR, 'Unexpected positive-case diagnostic ' . $marker . ' ' . $issue['code'] . "\n");
+                    $failures++;
+                }
+            }
+        }
         foreach ($issues as $issue) {
             if ($issue['code'] !== 'non-existent-method') { continue; }
             $primary = $issue['annotations'][0];

@@ -91,6 +91,18 @@
       "kind": "runtime-contract",
       "scope": "PHPUnit 12.5.40 excludes final, private, constructor and destructor methods; protected methods require explicit selection",
       "sha256": "5d9aba8888cae7af746681b555c218ac980c0bee32c56f568e6396a9321038dd"
+    },
+    "phpunit-wave8-assert-api": {
+      "url": "https://github.com/sebastianbergmann/phpunit/blob/76bd3198f16aeb375a4d5f3626471445aed0966e/src/Framework/Assert.php",
+      "kind": "runtime-contract",
+      "scope": "PHPUnit 12.5.40 public assertion runtime API, local installed distribution bytes",
+      "sha256": "2ea7310698825da107c7ac1c3a176bc7334733a4280b8a99e2973d26ca920acf"
+    },
+    "phpunit-wave8-empty-constraint": {
+      "url": "https://github.com/sebastianbergmann/phpunit/blob/76bd3198f16aeb375a4d5f3626471445aed0966e/src/Framework/Constraint/Cardinality/IsEmpty.php",
+      "kind": "runtime-contract",
+      "scope": "PHPUnit 12.5.40 special Countable emptiness and PHP empty scalar semantics",
+      "sha256": "aa59694e688707f3e0c8fa4bfc0d0af8f601752da3097c61910e20fbcc879c07"
     }
   },
   "cases": [
@@ -667,6 +679,106 @@
         "tests/wave8/mocks/PartialContracts.php",
         "tests/wave8/mocks/TraitContracts.php"
       ]
+    },
+    {
+      "sources": [
+        "phpunit-wave8-assert-api",
+        "phpunit-wave8-empty-constraint"
+      ],
+      "fixture": "<?php use PHPUnit\\Framework\\Assert; function check(?string $value): string { Assert::assertNotSame(null, $value); return $value; }",
+      "priority": "P1",
+      "versions": "Mago 1.60.2 and 1.61.0; PHP 8.3.37; PHPUnit 10.5.67, 11.5.58, and 12.5.40. PHPUnit 13 runtime verification belongs to the coordinator matrix.",
+      "coverage": [
+        "tests/wave8/assertions/Wave8Assertions.php",
+        "tests/wave8-assertions.php",
+        "tests/runtime/Wave8AssertionsTest.php"
+      ],
+      "id": "PHPUNIT-A013",
+      "title": "Object-property assertions preserve concrete types and narrow generic objects",
+      "semantics": "assertObjectHasProperty succeeds when the named property exists, including null values.",
+      "analyzer_expectation": "Method and function calls narrow generic object or mixed to an unsealed shape and retain existing shape properties. Concrete classes keep their original types.",
+      "negative_control": "Unknown literal or dynamic property names still report ambiguous property access.",
+      "status": "covered"
+    },
+    {
+      "sources": [
+        "phpunit-wave8-assert-api",
+        "phpunit-wave8-empty-constraint"
+      ],
+      "fixture": "<?php use PHPUnit\\Framework\\Assert; function check(?string $value): string { Assert::assertNotSame(null, $value); return $value; }",
+      "priority": "P1",
+      "versions": "Mago 1.60.2 and 1.61.0; PHP 8.3.37; PHPUnit 10.5.67, 11.5.58, and 12.5.40. PHPUnit 13 runtime verification belongs to the coordinator matrix.",
+      "coverage": [
+        "tests/wave8/assertions/Wave8Assertions.php",
+        "tests/wave8-assertions.php",
+        "tests/runtime/Wave8AssertionsTest.php"
+      ],
+      "id": "PHPUNIT-A014",
+      "title": "Literal count assertions constrain array size",
+      "semantics": "assertCount compares exact top-level cardinality; assertNotCount excludes that cardinality. COUNT_RECURSIVE can differ.",
+      "analyzer_expectation": "Positive exact count facts and the count return provider preserve literal top-level sizes. Zero count uses EmptyCountable for Mago compatibility. assertNotCount(0) gives non-empty arrays.",
+      "negative_control": "Dynamic expected counts, negative expected counts, optional shape entries, nonzero exclusions, dynamic modes and recursive counts keep their broader types.",
+      "status": "covered"
+    },
+    {
+      "sources": [
+        "phpunit-wave8-assert-api",
+        "phpunit-wave8-empty-constraint"
+      ],
+      "fixture": "<?php use PHPUnit\\Framework\\Assert; function check(?string $value): string { Assert::assertNotSame(null, $value); return $value; }",
+      "priority": "P1",
+      "versions": "Mago 1.60.2 and 1.61.0; PHP 8.3.37; PHPUnit 10.5.67, 11.5.58, and 12.5.40. PHPUnit 13 runtime verification belongs to the coordinator matrix.",
+      "coverage": [
+        "tests/wave8/assertions/Wave8Assertions.php",
+        "tests/wave8-assertions.php",
+        "tests/runtime/Wave8AssertionsTest.php"
+      ],
+      "id": "PHPUNIT-A015",
+      "title": "Strict inequality and containment assertions narrow singleton values",
+      "semantics": "assertNotSame and assertContains use strict identity. A negative contains assertion can exclude only values guaranteed present in every haystack alternative.",
+      "analyzer_expectation": "Singleton null, bool, int, string and enum cases are excluded. Contains narrows needles to array element types. Negative containment filters singleton unions only for guaranteed required values.",
+      "negative_control": "Optional elements, union-valued elements and disjoint or dynamic haystacks do not invent exclusions. Broad expected types do not erase entire domains.",
+      "status": "covered"
+    },
+    {
+      "sources": [
+        "phpunit-wave8-assert-api",
+        "phpunit-wave8-empty-constraint"
+      ],
+      "fixture": "<?php use PHPUnit\\Framework\\Assert; function check(?string $value): string { Assert::assertNotSame(null, $value); return $value; }",
+      "priority": "P1",
+      "versions": "Mago 1.60.2 and 1.61.0; PHP 8.3.37; PHPUnit 10.5.67, 11.5.58, and 12.5.40. PHPUnit 13 runtime verification belongs to the coordinator matrix.",
+      "coverage": [
+        "tests/wave8/assertions/Wave8Assertions.php",
+        "tests/wave8-assertions.php",
+        "tests/runtime/Wave8AssertionsTest.php"
+      ],
+      "id": "PHPUNIT-A016",
+      "title": "Empty assertions retain Countable objects and the string zero",
+      "semantics": "PHPUnit accepts empty Countable instances and the string zero. Native PHPUnit 10 annotations encode broader empty claims than Mago safely reconciles.",
+      "analyzer_expectation": "The extension skips native assertions. Without native assertions it skips all object-like, mixed or generic types and uses Falsy for scalar emptiness so the string zero survives.",
+      "negative_control": "A return claiming only the empty string remains invalid when zero is possible on PHPUnit 11 and 12. On PHPUnit 10 the original desired contract is retained but the runner explicitly proves parity with --no-extensions for inherited never-return and discarded-zero defects.",
+      "status": "partial"
+    },
+    {
+      "sources": [
+        "phpunit-wave8-assert-api",
+        "phpunit-wave8-empty-constraint"
+      ],
+      "fixture": "<?php use PHPUnit\\Framework\\Assert; function check(?string $value): string { Assert::assertNotSame(null, $value); return $value; }",
+      "priority": "P1",
+      "versions": "Mago 1.60.2 and 1.61.0; PHP 8.3.37; PHPUnit 10.5.67, 11.5.58, and 12.5.40. PHPUnit 13 runtime verification belongs to the coordinator matrix.",
+      "coverage": [
+        "tests/wave8/assertions/Wave8Assertions.php",
+        "tests/wave8-assertions.php",
+        "tests/runtime/Wave8AssertionsTest.php"
+      ],
+      "id": "PHPUNIT-A017",
+      "title": "List assertions fill the PHPUnit 10 annotation gap",
+      "semantics": "assertIsList accepts sequential zero-based array keys, including the empty array.",
+      "analyzer_expectation": "The extension supplies list narrowing only when native PHPUnit assertions are absent. Native 11 and later assertions remain authoritative.",
+      "negative_control": "The runtime contract rejects an array starting at key one.",
+      "status": "covered"
     }
   ]
 }

@@ -324,6 +324,7 @@ $expected[true]['tests/fixtures/TestWithAttributes.php'] = [
     'alfredbez/phpunit/phpunit-data-provider' => 0,
 ];
 $expected[false]['tests/fixtures/IntersectionMocks.php'] = [
+    'alfredbez/phpunit/assert-same-count' => 1,
     'non-existent-method' => 6,
 ];
 $expected[true]['tests/fixtures/IntersectionMocks.php'] = [
@@ -333,7 +334,8 @@ $expected[true]['tests/fixtures/IntersectionMocks.php'] = [
 $coversMethodSupported = class_exists(\PHPUnit\Framework\Attributes\CoversMethod::class);
 $coversTraitSupported = class_exists(\PHPUnit\Framework\Attributes\CoversTrait::class);
 $expected[false]['tests/fixtures/CoverageTargets.php'] = [
-    'alfredbez/phpunit/phpunit-invalid-covers-target' => 9,
+    'alfredbez/phpunit/redundant-assertion' => 1,
+    'alfredbez/phpunit/phpunit-invalid-covers-target' => $phpunitMajor >= 12 ? 11 : 9,
     'non-existent-attribute-class' => ($coversMethodSupported ? 0 : 8) + ($coversTraitSupported ? 0 : 5),
 ];
 $expected[true]['tests/fixtures/CoverageTargets.php'] = [

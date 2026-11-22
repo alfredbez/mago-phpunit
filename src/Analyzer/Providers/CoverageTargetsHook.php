@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace AlfredBez\MagoPhpunit\Analyzer\Providers;
 
+use AlfredBez\MagoPhpunit\Analyzer\PhpUnitVersion;
+use Mago\Sdk\Analyzer\Metadata\MetadataFlags;
 use Mago\Sdk\Analyzer\ClassLikeAnalysisHook;
 use Mago\Sdk\Analyzer\ClassLikeTarget;
 use Mago\Sdk\Analyzer\FileAnalysisRequirement;
@@ -70,13 +72,20 @@ final class CoverageTargetsHook implements ClassLikeAnalysisHook
         $source = $context->source;
         $classNode = $context->node;
 
+        $classDoc = TestMetadataHook::docblock($source, $classNode) ?? '';
         $this->checkAttributeContainer($context, $source, $classNode);
+        if (PhpUnitVersion::supportsDocblockMetadata($context->codebase)) {
+            $this->checkCoverageAnnotations($context, $classNode, $classDoc, '');
+        }
         foreach ($source->getChildren($classNode) as $member) {
             $method = $member->kind === NodeKind::Method
                 ? $member
                 : ($member->kind === NodeKind::ClassLikeMember ? ($source->getChildren($member)[0] ?? null) : null);
             if ($method !== null && $method->kind === NodeKind::Method) {
                 $this->checkAttributeContainer($context, $source, $method);
+                if (PhpUnitVersion::supportsDocblockMetadata($context->codebase)) {
+                    $this->checkCoverageAnnotations($context, $method, TestMetadataHook::docblock($source, $method) ?? '', $classDoc);
+                }
             }
         }
     }
@@ -132,6 +141,16 @@ final class CoverageTargetsHook implements ClassLikeAnalysisHook
             return;
         }
 
+        $meta = $context->codebase->getClassLike($targetClass);
+        $major = PhpUnitVersion::major($context->codebase);
+        $literal = $this->literalString($source, $classArg);
+        if ($meta !== null && ($meta->flags->contains(MetadataFlags::BUILTIN)
+            || ($major >= 11 && $context->codebase->interfaceExists($targetClass))
+            || ($major >= 12 && ($context->codebase->traitExists($targetClass) || str_starts_with($literal ?? '', '\\'))))) {
+            $this->report($context, $classArg->span, "#[{$label}] target `{$targetClass}` is not a coverable class.");
+            return;
+        }
+
         if (!$context->codebase->classLikeExists($targetClass)) {
             $this->report(
                 $context,
@@ -158,7 +177,7 @@ final class CoverageTargetsHook implements ClassLikeAnalysisHook
             return;
         }
 
-        if (!$context->codebase->traitExists($targetTrait)) {
+        if (!$context->codebase->traitExists($targetTrait) || (PhpUnitVersion::major($context->codebase) >= 12 && str_starts_with($this->literalString($source, $traitArg) ?? '', '\\'))) {
             $this->report(
                 $context,
                 $traitArg->span,
@@ -200,6 +219,17 @@ final class CoverageTargetsHook implements ClassLikeAnalysisHook
         if ($meta !== null && $meta->hasIncompleteHierarchy()) {
             return;
         }
+        $declaring = $context->codebase->getDeclaringMethod($targetClass, $targetMethod);
+        $major = PhpUnitVersion::major($context->codebase);
+        if ($meta?->flags->contains(MetadataFlags::BUILTIN) || ($major >= 12 && (
+            $context->codebase->interfaceExists($targetClass)
+            || str_starts_with($this->literalString($source, $classArg) ?? '', '\\')
+            || ($declaring !== null && strcasecmp($declaring->identifier->class ?? '', $targetClass) !== 0
+                && !$context->codebase->traitExists($declaring->identifier->class ?? ''))
+        ))) {
+            $this->report($context, $methodArg->span, "#[{$label}] target `{$targetClass}::{$targetMethod}()` is not declared by a coverable target.");
+            return;
+        }
 
         if (!$context->codebase->methodExists($targetClass, $targetMethod)) {
             $this->report(
@@ -232,7 +262,9 @@ final class CoverageTargetsHook implements ClassLikeAnalysisHook
             return;
         }
 
-        if ($context->codebase->functionExists($normalized) || function_exists($normalized)) {
+        $function = $context->codebase->getFunction($normalized);
+        if ($function !== null && !$function->flags->contains(MetadataFlags::BUILTIN)
+            && !(PhpUnitVersion::major($context->codebase) >= 12 && str_starts_with($funcName, '\\'))) {
             return;
         }
 
@@ -241,6 +273,63 @@ final class CoverageTargetsHook implements ClassLikeAnalysisHook
             $funcArg->span,
             "#[{$label}] target function `{$normalized}` does not exist.",
         );
+    }
+
+    private function checkCoverageAnnotations(NodeAnalysisContext $context, Node $node, string $doc, string $classDoc): void
+    {
+        $default = null;
+        preg_match_all('/@coversDefaultClass[ \t]+([^\s*]+)/i', $classDoc . "\n" . $doc, $defaults);
+        if ($classDoc === '' && count($defaults[1]) > 1) {
+            $this->report($context, $node->span, 'Duplicate @coversDefaultClass annotations are not allowed.');
+        }
+        if ($defaults[1] !== []) {
+            $default = ltrim($defaults[1][0], '\\');
+            if ($classDoc === '' && ($default === '' || !$context->codebase->classLikeExists($default) || $context->codebase->getClassLike($default)?->flags->contains(MetadataFlags::BUILTIN))) {
+                $this->report($context, $node->span, "@coversDefaultClass target `{$default}` is not a coverable class.");
+            }
+        }
+        preg_match_all('/@covers[ \t]+([^\s]+)/i', $doc, $targets);
+        preg_match_all('/@covers[ \t]+([^\s]+)/i', $classDoc, $classTargets);
+        $seen = [];
+        foreach ($targets[1] as $raw) {
+            $target = ltrim($raw, '\\');
+            if (isset($seen[$target])) {
+                $this->report($context, $node->span, "Duplicate @covers target `{$raw}`.");
+                continue;
+            }
+            $seen[$target] = true;
+            foreach ($classTargets[1] as $classTarget) {
+                $normalized = ltrim($classTarget, '\\');
+                if ($target === $normalized || (!str_contains($normalized, '::') && str_starts_with($target, $normalized . '::'))) {
+                    $context->report(Level::Warning, 'redundant-covers', Issue::at("@covers target `{$raw}` is already declared on the test class.", new SourceLocation($context->analysis->file, $node->span)));
+                    break;
+                }
+            }
+            if (str_starts_with($target, '::') && $default !== null) {
+                $target = $default . $target;
+            }
+            if (str_contains($target, '::')) {
+                [$class, $method] = explode('::', $target, 2);
+                $function = $method === '' ? null : $context->codebase->getFunction($method);
+                if ($function !== null && !$function->flags->contains(MetadataFlags::BUILTIN)) {
+                    continue;
+                }
+                if ($class === '' || preg_match('/^[a-zA-Z_\x80-\xff][a-zA-Z0-9_\x80-\xff]*$/D', $method) !== 1
+                    || !$context->codebase->classLikeExists($class)
+                    || $context->codebase->getClassLike($class)?->flags->contains(MetadataFlags::BUILTIN)
+                    || !$context->codebase->methodExists($class, $method)) {
+                    $this->report($context, $node->span, "@covers target `{$raw}` is not a coverable class method.");
+                }
+            } else {
+                $function = $target === '' ? null : $context->codebase->getFunction($target);
+                $validFunction = $function !== null && !$function->flags->contains(MetadataFlags::BUILTIN);
+                $validClass = $target !== '' && ($context->codebase->classExists($target) || $context->codebase->traitExists($target))
+                    && !$context->codebase->getClassLike($target)?->flags->contains(MetadataFlags::BUILTIN);
+                if (!$validFunction && !$validClass) {
+                    $this->report($context, $node->span, "@covers target `{$raw}` is not a coverable class, trait, or function.");
+                }
+            }
+        }
     }
 
     private function extractClassReference(SourceFile $source, Node $argument): ?string

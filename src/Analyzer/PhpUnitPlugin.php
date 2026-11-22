@@ -43,6 +43,13 @@ final class PhpUnitPlugin implements Plugin
     {
         $dataProviders = $this->dataProviders;
         $legacyMocks = new LegacyMockCalls();
+        $prophecy = new \AlfredBez\MagoPhpunit\Analyzer\Providers\ProphecySupport();
+        $registry->registerMethodReturnTypeProvider(new \AlfredBez\MagoPhpunit\Analyzer\Providers\ProphecyReturnTypeProvider());
+        $registry->registerMethodCallAnalysisHook($prophecy);
+        $registry->registerMethodAssertionProvider(new \AlfredBez\MagoPhpunit\Analyzer\Providers\ProphecyMutationAssertions());
+        $registry->registerMethodCallAnalysisHook(new \AlfredBez\MagoPhpunit\Analyzer\Providers\AssertionQualityHook());
+        $registry->registerNodeAnalysisHook(new \AlfredBez\MagoPhpunit\Analyzer\Providers\AssertionQualityHook(true));
+        $registry->registerClassLikeAnalysisHook(new \AlfredBez\MagoPhpunit\Analyzer\Providers\TestMetadataHook());
         $registry->enableProviderMemoization();
         $registry->registerMethodAssertionProvider(new AssertArrayHasKeyAssertion());
         $registry->registerFunctionAssertionProvider(new AssertArrayHasKeyFunctionAssertion());

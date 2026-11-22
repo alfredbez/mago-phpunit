@@ -103,6 +103,42 @@
       "kind": "runtime-contract",
       "scope": "PHPUnit 12.5.40 special Countable emptiness and PHP empty scalar semantics",
       "sha256": "aa59694e688707f3e0c8fa4bfc0d0af8f601752da3097c61910e20fbcc879c07"
+    },
+    "phpunit10-codecoverage": {
+      "url": "https://github.com/sebastianbergmann/phpunit/blob/1f3e67dd433817bddfc64afab63977cc4b011374/src/Metadata/Api/CodeCoverage.php",
+      "kind": "runtime-contract",
+      "sha256": "38c6596716299934f051b0bb023acabad0c907171dfd2ec45bd0eb9b0a5d953a",
+      "scope": "Full legacy coverage API accepts user functions and traits; rejects plain interfaces and builtins."
+    },
+    "code-unit-mapper": {
+      "url": "https://github.com/sebastianbergmann/code-unit/blob/a81fee9eef0b7a76af11d121767abc44c104e503/src/Mapper.php",
+      "kind": "runtime-contract",
+      "sha256": "5a804243e8ee88144e87e579a4686558103a75d2342c4d37558f8695ffa06143",
+      "scope": "Legacy accepted user functions and traits; unsupported visibility selectors and wildcard"
+    },
+    "phpunit10-data-provider": {
+      "url": "https://github.com/sebastianbergmann/phpunit/blob/1f3e67dd433817bddfc64afab63977cc4b011374/src/Metadata/Api/DataProvider.php",
+      "kind": "runtime-contract",
+      "sha256": "2b3272a82c94b6f9348f6b6c395aab3b7b19f0ab1f95a0d7cacfdb00233dadaf",
+      "scope": "Legacy multiline @testWith JSON; provider empty/name validation"
+    },
+    "prophecy-class-mirror": {
+      "url": "https://github.com/phpspec/prophecy/blob/09c2e5949d676286358a62af818f8407167a9dd6/src/Prophecy/Doubler/Generator/ClassMirror.php",
+      "kind": "runtime-contract",
+      "scope": "Final doubles, supported setup methods, return reflection",
+      "sha256": "656b6303232d295ce86e520a2e9e548819cbf10e993dbc593bb30195e4687c7c"
+    },
+    "prophecy-method": {
+      "url": "https://github.com/phpspec/prophecy/blob/09c2e5949d676286358a62af818f8407167a9dd6/src/Prophecy/Prophecy/MethodProphecy.php",
+      "kind": "runtime-contract",
+      "scope": "Return, argument, yield promises and void rejection",
+      "sha256": "64de246832bd4caabfba97ad6ad364fcbd9dd89db112f6745329f2bdcece6ec4"
+    },
+    "prophecy-type-token": {
+      "url": "https://github.com/phpspec/prophecy/blob/09c2e5949d676286358a62af818f8407167a9dd6/src/Prophecy/Argument/Token/TypeToken.php",
+      "kind": "runtime-contract",
+      "scope": "Recognized is_* predicates and class/interface names",
+      "sha256": "30cd49ea540a067b8965709e59ec0112f1ff13fbdbb75999b3727852f70d3cda"
     }
   },
   "cases": [
@@ -779,6 +815,102 @@
       "analyzer_expectation": "The extension supplies list narrowing only when native PHPUnit assertions are absent. Native 11 and later assertions remain authoritative.",
       "negative_control": "The runtime contract rejects an array starting at key one.",
       "status": "covered"
+    },
+    {
+      "id": "PHPUNIT-A018",
+      "title": "Redundant assertions and count comparisons",
+      "sources": [
+        "phpunit-wave8-assert-api"
+      ],
+      "coverage": [
+        "tests/wave8/analyzer/Wave8AnalyzerQuality.php",
+        "tests/wave8-analyzer.php"
+      ],
+      "analyzer_expectation": "Named positive warnings, unknown-type and non-count negative controls",
+      "status": "partial",
+      "versions": "Mago 1.61.0 with PHPUnit 10.5.67/PHP 8.3.37 and PHPUnit 12.5.45/PHP 8.5.13; remaining matrix parent-owned",
+      "fixture": "<?php function assertionQuality(string $value): void { \\PHPUnit\\Framework\\Assert::assertNotNull($value); }",
+      "semantics": "Assertions warn only when their static argument type guarantees success.",
+      "negative_control": "A nullable or mixed value must not produce a redundant assertion warning.",
+      "priority": "P1"
+    },
+    {
+      "id": "PHPUNIT-M009",
+      "title": "Fixture lifecycle, requirements, and annotations",
+      "sources": [
+        "phpunit10-data-provider"
+      ],
+      "coverage": [
+        "tests/wave8/analyzer/Wave8AnalyzerQuality.php",
+        "tests/wave8-analyzer.php"
+      ],
+      "analyzer_expectation": "Missing inherited parent setup; complete versus incomplete requirement versions",
+      "status": "partial",
+      "versions": "Mago 1.61.0 with PHPUnit 10.5.67/PHP 8.3.37 and PHPUnit 12.5.45/PHP 8.5.13; remaining matrix parent-owned",
+      "fixture": "<?php class FixtureParent extends \\PHPUnit\\Framework\\TestCase { protected function setUp(): void {} } class FixtureChild extends FixtureParent { protected function setUp(): void {} }",
+      "semantics": "Inherited fixture methods run only when the overriding fixture calls the parent; requirement metadata follows installed PHPUnit contracts.",
+      "negative_control": "Direct TestCase children and overrides that call their parent remain silent; native legacy metadata gates remain respected.",
+      "priority": "P1"
+    },
+    {
+      "id": "PHPUNIT-D011",
+      "title": "Provider completeness and legacy TestWith",
+      "sources": [
+        "phpunit10-data-provider"
+      ],
+      "coverage": [
+        "tests/wave8/analyzer/Wave8AnalyzerProviders.php",
+        "tests/runtime/Wave8MetadataRuntimeTest.php",
+        "tests/wave8-analyzer.php"
+      ],
+      "analyzer_expectation": "Empty providers and generator semantics, duplicate names, provider-is-test, versioned mixed metadata, multiline JSON",
+      "status": "partial",
+      "versions": "Mago 1.61.0 with PHPUnit 10.5.67/PHP 8.3.37 and PHPUnit 12.5.45/PHP 8.5.13; remaining matrix parent-owned",
+      "fixture": "<?php class EmptyRowsTest extends \\PHPUnit\\Framework\\TestCase { public static function rows(): array { return []; } #[\\PHPUnit\\Framework\\Attributes\\DataProvider(\"rows\")] public function testRows(int $value): void {} }",
+      "semantics": "All known local providers must provide rows unless the supported skipWhenEmpty contract applies; names and legacy JSON follow runtime semantics.",
+      "negative_control": "Nonempty combined providers, distinct keys, conditional generators and supported skipWhenEmpty remain valid.",
+      "priority": "P1"
+    },
+    {
+      "id": "PHPUNIT-C002",
+      "title": "Versioned and approved legacy coverage targets",
+      "sources": [
+        "phpunit10-codecoverage",
+        "code-unit-mapper"
+      ],
+      "coverage": [
+        "tests/wave8/analyzer/Wave8AnalyzerCoverage.php",
+        "tests/wave8-analyzer.php",
+        "tests/runtime/Wave8MetadataRuntimeTest.php"
+      ],
+      "analyzer_expectation": "Runtime-valid legacy functions, traits, and interface methods pass; malformed selectors never reach unsafe SDK member queries; exact invalid-target diagnostics and version gates pass.",
+      "status": "partial",
+      "versions": "Mago 1.61.0 with PHPUnit 10.5.67/PHP 8.3.37 and PHPUnit 12.5.45/PHP 8.5.13; remaining matrix parent-owned",
+      "fixture": "<?php function coveredFunction(): void {} /** @covers ::coveredFunction */ class LegacyCoverageTest extends \\PHPUnit\\Framework\\TestCase { public function testTarget(): void {} }",
+      "semantics": "Legacy coverage accepts valid user functions and traits, including function shortcuts without a default class; invalid targets follow runtime version gates.",
+      "negative_control": "Valid functions, traits, interface methods and supported defaults must not produce invalid-target reports; missing or malformed targets remain errors.",
+      "priority": "P1"
+    },
+    {
+      "id": "PHPUNIT-P001",
+      "title": "Optional Prophecy setup, mutation, and promises",
+      "sources": [
+        "prophecy-class-mirror",
+        "prophecy-method",
+        "prophecy-type-token"
+      ],
+      "coverage": [
+        "tests/wave8/prophecy/Wave8Prophecy.php",
+        "tests/runtime/Wave8ProphecyRuntimeTest.php",
+        "tests/wave8-prophecy.php"
+      ],
+      "analyzer_expectation": "Typed reveal/setup/intersections, invalid factories/setups/tokens/promises, valid weak scalar coercions",
+      "status": "partial",
+      "versions": "Mago 1.61.0 with PHPUnit 10.5.67/PHP 8.3.37 and PHPUnit 12.5.45/PHP 8.5.13; remaining matrix parent-owned",
+      "fixture": "<?php interface ProphecyService { public function name(): string; } class PromiseTest extends \\PHPUnit\\Framework\\TestCase { use \\Prophecy\\PhpUnit\\ProphecyTrait; public function testPromise(): void { $p = $this->prophesize(ProphecyService::class); $p->name()->willReturn(new \\stdClass()); } }",
+      "semantics": "Prophecy exposes method promises, mutates revealed target types and validates factories, setups, tokens and native return promises including weak scalar coercion.",
+      "negative_control": "Valid tokens, weak scalar returns, standalone mutations and supported Generator promises remain silent; absent optional dependencies do not prevent worker execution.",
+      "priority": "P1"
     }
   ]
 }

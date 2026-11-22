@@ -257,6 +257,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
         }
 
         foreach ($workItems as $item) {
+            $this->checkCompleteness($context, $source, $classMethods, $item);
             $testLabel = $item['label'];
             $effectiveDependencies = $this->valuePassingDependencies($context, $item['dependencies']);
             $test = null;
@@ -365,6 +366,10 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                         $row['keyOrder'],
                     );
                 }
+            }
+
+            if ($supportsDocblock && !$this->hasPhpUnitAttributes($source, $item['node'])) {
+                $this->checkDocblockTestWith($context, $source, $item['node'], $testLabel, $schema, $effectiveDependencies, $checkedDepOffsets);
             }
 
             if ($item['hasTestWith'] && $test !== null) {
@@ -700,8 +705,11 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
             }
         }
 
-        if ($supportsDocblock) {
+        if ($supportsDocblock && !$this->hasPhpUnitAttributes($source, $method)) {
             $docblock = $this->attachedDocblock($source, $method);
+            if ($docblock !== null && stripos($docblock, '@testWith') !== false) {
+                $hasTestWith = true;
+            }
             if ($docblock !== null && stripos($docblock, '@dataProvider') !== false) {
                 $matched = preg_match_all(
                     '/^[ \t]*\*?[ \t]*@dataProvider[ \t]+(\\\\?[A-Za-z_\x80-\xff][A-Za-z0-9_\x80-\xff\\\\]*)(?:::([A-Za-z_\x80-\xff][A-Za-z0-9_\x80-\xff]*))?/m',
@@ -1460,6 +1468,164 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                 $jsonKeyOrder,
             );
         }
+    }
+
+    private function hasPhpUnitAttributes(SourceFile $source, Node $method): bool
+    {
+        foreach ($source->getChildren($method) as $list) {
+            if ($list->kind !== NodeKind::AttributeList) {
+                continue;
+            }
+            foreach ($source->getChildren($list) as $attribute) {
+                if ($attribute->kind === NodeKind::Attribute && str_starts_with(strtolower($this->attributeName($source, $attribute) ?? ''), 'phpunit\\framework\\attributes\\')) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private function checkDocblockTestWith(NodeAnalysisContext $context, SourceFile $source, Node $method, string $test, array $schema, array $dependencies, array &$checkedDepOffsets): void
+    {
+        $doc = $this->attachedDocblock($source, $method) ?? '';
+        $doc = preg_replace('/\r\n?/', "\n", $doc) ?? $doc;
+        $doc = preg_replace('/\n\s*\*\s?/', "\n", $doc) ?? $doc;
+        $doc = preg_replace('/\s*\*\/\s*$/', '', $doc) ?? $doc;
+        if (preg_match('/@testWith\s+/i', $doc, $match, PREG_OFFSET_CAPTURE) !== 1) {
+            return;
+        }
+        $offset = $match[0][1] + strlen($match[0][0]);
+        $rows = explode("\n", substr($doc, $offset));
+        foreach ($rows as $index => $json) {
+            $json = trim($json);
+            if ($index > 0 && ($json === '' || !str_starts_with($json, '['))) {
+                break;
+            }
+            try {
+                $row = json_decode(trim($json), true, 512, JSON_THROW_ON_ERROR);
+            } catch (JsonException) {
+                $this->report($context, $context->analysis->file, $method->span, "Annotation @testWith row #{$index} for {$test}() contains invalid JSON.");
+                continue;
+            }
+            if (!str_starts_with($json, '[') || !is_array($row)) {
+                $this->report($context, $context->analysis->file, $method->span, "Annotation @testWith row #{$index} for {$test}() must contain a JSON argument list.");
+                continue;
+            }
+            $this->checkRow($context, $context->analysis->file, $context->analysis->file, self::jsonValueToType($row), $method->span, '#' . $index, $test, 'Annotation @testWith', $schema, true, $dependencies, $checkedDepOffsets, array_is_list($row) ? null : array_keys($row));
+        }
+    }
+
+    private function checkCompleteness(NodeAnalysisContext $context, SourceFile $source, array $methods, array $item): void
+    {
+        $major = PhpUnitVersion::major($context->codebase);
+        $allEmpty = $item['providers'] !== [];
+        $names = [];
+        foreach ($item['providers'] as $provider) {
+            $method = $methods[strtolower($provider['method'])]['node'] ?? $provider['node'];
+            if ($provider['external'] || $method === null) {
+                $allEmpty = false;
+                continue;
+            }
+            $label = $provider['method'];
+            $isTest = str_starts_with(strtolower($label), 'test');
+            foreach ($source->getDescendants($method, NodeKind::Attribute) as $attribute) {
+                $isTest = $isTest || strtolower($this->attributeName($source, $attribute) ?? '') === 'phpunit\\framework\\attributes\\test';
+            }
+            if ($isTest) {
+                $this->warning($context, $method->span, 'data-provider-is-test', "Data provider {$label}() is also a test method.");
+            }
+            $returns = array_values(array_filter($source->getDescendants($method, NodeKind::Return), fn(Node $node) => !$this->isNestedCallable($source, $method, $node)));
+            $yields = array_values(array_filter($source->getDescendants($method, NodeKind::Yield), fn(Node $node) => !$this->isNestedCallable($source, $method, $node)));
+            $empty = $returns !== [] || $yields !== [];
+            if ($yields === []) {
+                foreach ($returns as $return) {
+                    if (preg_match('/^return\s*\[\s*\]\s*;$/s', trim($source->getText($return))) !== 1) {
+                        $empty = false;
+                    }
+                }
+            } else {
+                foreach ($yields as $yield) {
+                    if (preg_match('/^yield\s+from\s*\[\s*\]$/s', trim($source->getText($yield))) !== 1) {
+                        $empty = false;
+                    }
+                }
+            }
+            if (!$empty || ($major >= 13 && preg_match('/skipWhenEmpty\s*:\s*true/i', $source->getText($provider['span'])) === 1)) {
+                $allEmpty = false;
+            }
+            $keys = [];
+            foreach ($this->extractProviderRows($context->analysis, $source, $method) as $row) {
+                if (str_starts_with($row['label'], '"')) {
+                    $keys[substr($row['label'], 1, -1)] = $row['span'];
+                }
+            }
+            foreach ($source->getDescendants($method, NodeKind::YieldPair) as $pair) {
+                $conditional = false;
+                foreach ($source->getAncestors($pair) as $ancestor) {
+                    if ($ancestor->id === $method->id) {
+                        break;
+                    }
+                    if (in_array($ancestor->kind, [NodeKind::If, NodeKind::Switch, NodeKind::Match, NodeKind::For, NodeKind::Foreach, NodeKind::While, NodeKind::DoWhile, NodeKind::Closure, NodeKind::ArrowFunction], true)) {
+                        $conditional = true;
+                        break;
+                    }
+                }
+                if (!$conditional) {
+                    $key = $this->directLiteralString($source, $source->getChildren($pair)[0] ?? null);
+                    if ($key !== null) {
+                        if (isset($keys[$key])) {
+                            $this->report($context, $context->analysis->file, $pair->span, "Duplicate dataset key \"{$key}\" in {$item['label']}().");
+                        }
+                        $keys[$key] = $pair->span;
+                    }
+                }
+            }
+            foreach ($keys as $key => $span) {
+                if (isset($names[$key])) {
+                    $this->report($context, $context->analysis->file, $span, "Duplicate dataset key \"{$key}\" across providers for {$item['label']}().");
+                }
+                if ($major >= 13 && $key === '') {
+                    $this->report($context, $context->analysis->file, $span, "Dataset keys must not be empty for {$item['label']}().");
+                }
+                $names[$key] = true;
+            }
+        }
+        if ($allEmpty) {
+            $this->report($context, $context->analysis->file, $item['node']->span, "All local data providers for {$item['label']}() are empty.");
+        }
+        if ($item['hasTestWith'] && $item['providers'] !== [] && $this->supportsProviderMixWarning($context)) {
+            $this->warning($context, $item['node']->span, 'mixed-data-provider', "Test {$item['label']}() combines TestWith and DataProvider metadata.");
+        }
+        if ($major >= 11 && $item['hasTestWith']) {
+            $seen = [];
+            foreach ($source->getDescendants($item['node'], NodeKind::Attribute) as $attribute) {
+                $name = strtolower($this->attributeName($source, $attribute) ?? '');
+                if ($name !== self::TEST_WITH && $name !== self::TEST_WITH_JSON) {
+                    continue;
+                }
+                $key = $this->literalString($source, $this->attributeArgument($source, $this->attributeArguments($source, $attribute), 1, 'name'));
+                if ($key === null) {
+                    continue;
+                }
+                if (isset($seen[$key])) {
+                    $this->report($context, $context->analysis->file, $attribute->span, "Duplicate TestWith dataset key \"{$key}\" for {$item['label']}().");
+                }
+                if ($major >= 13 && $key === '') {
+                    $this->report($context, $context->analysis->file, $attribute->span, "TestWith dataset keys must not be empty for {$item['label']}().");
+                }
+                $seen[$key] = true;
+            }
+        }
+    }
+
+    private function supportsProviderMixWarning(NodeAnalysisContext $context): bool
+    {
+        return PhpUnitVersion::major($context->codebase) >= 13 || $context->codebase->classExists('PHPUnit\\Framework\\Attributes\\WithEnvironmentVariable');
+    }
+
+    private function warning(NodeAnalysisContext $context, Span $span, string $code, string $message): void
+    {
+        $context->report(Level::Warning, $code, Issue::at($message, new SourceLocation($context->analysis->file, $span)));
     }
 
     private static function jsonValueToType(mixed $value): Type

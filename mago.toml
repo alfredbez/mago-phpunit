@@ -4,7 +4,7 @@ php-version = "8.5"
 
 [source]
 paths = ["tests/fixtures"]
-includes = ["vendor/phpunit/phpunit/src"]
+includes = ["vendor/phpunit/phpunit/src", "vendor/phpspec/prophecy/src", "vendor/phpspec/prophecy-phpunit/src"]
 
 [analyzer]
 find-unused-definitions = false

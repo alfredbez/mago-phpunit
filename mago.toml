@@ -12,5 +12,5 @@ find-unused-expressions = false
 check-property-initialization = true
 
 [extension-hosts.phpunit]
-command = ["php", "tests/worker.php"]
+command = ["php", "bin/mago-phpunit-worker"]
 workers = 1

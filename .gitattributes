@@ -1,0 +1,13 @@
+/.codspeed export-ignore
+/.gitattributes export-ignore
+/.github export-ignore
+/.gitignore export-ignore
+/.mago export-ignore
+/bench export-ignore
+/codspeed.yml export-ignore
+/composer.lock export-ignore
+/cycles export-ignore
+/mago.toml export-ignore
+/spec export-ignore
+/tests export-ignore
+/tools export-ignore

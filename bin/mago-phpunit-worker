@@ -1,0 +1,31 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+$autoloadCandidates = [];
+if (isset($GLOBALS['_composer_autoload_path']) && is_string($GLOBALS['_composer_autoload_path'])) {
+    $autoloadCandidates[] = $GLOBALS['_composer_autoload_path'];
+}
+$autoloadCandidates[] = dirname(__DIR__, 3) . '/autoload.php';
+$autoloadCandidates[] = dirname(__DIR__) . '/vendor/autoload.php';
+
+$autoload = null;
+foreach ($autoloadCandidates as $candidate) {
+    if (is_file($candidate)) {
+        $autoload = $candidate;
+        break;
+    }
+}
+
+if ($autoload === null) {
+    fwrite(
+        STDERR,
+        "mago-phpunit-worker: could not locate Composer vendor/autoload.php. Run composer install first.\n",
+    );
+    exit(1);
+}
+
+require $autoload;
+
+(new \Mago\Sdk\Worker(\AlfredBez\MagoPhpunit\PhpUnitExtension::create()))->run();

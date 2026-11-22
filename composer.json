@@ -3,7 +3,18 @@
     "description": "PHPUnit support for the Mago static analyzer.",
     "type": "library",
     "license": "MIT",
-    "keywords": ["mago", "phpunit", "static-analysis", "extension"],
+    "homepage": "https://github.com/alfredbez/mago-phpunit",
+    "keywords": ["mago", "phpunit", "static-analysis", "extension", "php"],
+    "authors": [
+        {
+            "name": "Alfred Bez",
+            "homepage": "https://github.com/alfredbez"
+        }
+    ],
+    "support": {
+        "issues": "https://github.com/alfredbez/mago-phpunit/issues",
+        "source": "https://github.com/alfredbez/mago-phpunit"
+    },
     "require": {
         "php": "~8.1.0 || ~8.2.0 || ~8.3.0 || ~8.4.0 || ~8.5.0 || ~8.6.0",
         "carthage-software/mago": "~1.60.2"
@@ -16,8 +27,16 @@
             "AlfredBez\\MagoPhpunit\\": "src/"
         }
     },
+    "bin": [
+        "bin/mago-phpunit-worker"
+    ],
     "scripts": {
-        "test": "php tests/run.php"
+        "test": [
+            "@test:analyzer",
+            "@test:runtime"
+        ],
+        "test:analyzer": "php tests/run.php",
+        "test:runtime": "vendor/bin/phpunit tests/runtime"
     },
     "config": {
         "sort-packages": true,

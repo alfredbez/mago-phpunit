@@ -30,8 +30,14 @@ jobs:
           extensions: curl, mbstring, xml, zip
           tools: composer
 
+      - name: Validate Composer metadata
+        run: composer validate --strict
+
       - name: Install dependencies
         run: composer update --no-interaction --prefer-dist --no-progress --with="phpunit/phpunit:${{ matrix.phpunit }}"
+
+      - name: Validate conformance catalog
+        run: php tests/check-spec.php
 
       - name: Run suite
         run: composer test

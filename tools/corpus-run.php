@@ -353,10 +353,14 @@ function runAnalyze(array $magoCommand, string $tomlPath, string $cwd, bool $noE
                 break;
             }
         }
+        $start = is_array($primary['span']['start'] ?? null) ? $primary['span']['start'] : [];
+        $line = isset($start['line'])
+            ? (array_key_exists('column', $start) ? (int) $start['line'] : (int) $start['line'] + 1)
+            : 0;
         $issues[] = [
             'code' => (string) ($issue['code'] ?? ''),
             'file' => (string) ($primary['span']['file_id']['name'] ?? ''),
-            'line' => (int) ($primary['span']['start']['line'] ?? 0),
+            'line' => $line,
             'message' => (string) ($issue['message'] ?? ''),
         ];
     }

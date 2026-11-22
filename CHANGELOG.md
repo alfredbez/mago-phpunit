@@ -6,7 +6,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
-`0.1.0` release candidate targeting Mago `~1.60.2` and PHPUnit `^10.5 || ^11.5 || ^12.0 || ^13.0`.
+`0.1.0` release candidate targeting Mago `^1.60.2` (verified on `1.60.2` and `1.61.0`) and PHPUnit `^10.5 || ^11.5 || ^12.0 || ^13.0`.
 
 ### Added
 

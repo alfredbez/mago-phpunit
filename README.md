@@ -1,11 +1,11 @@
 # alfredbez/mago-phpunit
 
-PHPUnit support for [Mago](https://github.com/carthage-software/mago) 1.60.2 through its PHP extension SDK. This external analyzer extension teaches Mago about PHPUnit assertions, `TestCase` property initialization, data providers, coverage targets, mocks, and test dependencies.
+PHPUnit support for [Mago](https://github.com/carthage-software/mago) 1.60.2+ through its PHP extension SDK. This external analyzer extension teaches Mago about PHPUnit assertions, `TestCase` property initialization, data providers, coverage targets, mocks, and test dependencies.
 
 ## Supported versions
 
 - PHP `~8.1.0 || ~8.2.0 || ~8.3.0 || ~8.4.0 || ~8.5.0 || ~8.6.0`
-- Mago (`carthage-software/mago`) `~1.60.2`
+- Mago (`carthage-software/mago`) `^1.60.2` (CI tests Mago `1.60.2` and `1.61.0+`)
 - PHPUnit `^10.5 || ^11.5 || ^12.0 || ^13.0` (not required at runtime so applications keep their own PHPUnit constraint; CI tests `^10.5`, `^11.5`, and `^12.0` on PHP 8.3, and `^13.0` on PHP 8.4)
 - `#[DataProviderClosure]` requires PHPUnit 13.1.0+, PHP 8.5 at runtime, and `php-version = "8.5"` in `mago.toml`
 
@@ -60,10 +60,10 @@ The extension registers hooks under the `alfredbez/phpunit` plugin:
 
 `assertInstanceOf()`, `assertNull()`, `assertSame()`, `createMock()`, and `createStub()` are narrowed natively by Mago using PHPUnit's `@psalm-assert` and `@phpstan-assert` annotations.
 
-## Known Mago 1.60.2 SDK boundaries
+## Known Mago SDK boundaries
 
-- `assertObjectHasProperty()` is not implemented because Mago 1.60.2 SDK does not expose a `PropertyExists` assertion kind.
-- Untyped test-method parameter inference from data providers is blocked because Mago 1.60.2 SDK does not expose a method parameter type override hook.
+- `assertObjectHasProperty()` is not implemented because the Mago `1.60.2` through `1.61.0` SDK does not expose a `PropertyExists` assertion kind.
+- Untyped test-method parameter inference from data providers is blocked because the Mago `1.60.2` through `1.61.0` SDK does not expose a method parameter type override hook.
 - `assertArrayHasKey()` and `assertArrayNotHasKey()` ignore non-literal keys, `assertContainsOnly()` and `assertContainsOnlyInstancesOf()` ignore non-literal type names, and `createMockForIntersectionOfInterfaces()` / `createStubForIntersectionOfInterfaces()` require a literal list of at least two distinct interfaces.
 - Mago treats a property as initialized when `setUp()` assigns it on a reachable path, even behind a branch Mago cannot fold.
 - Non-literal provider bodies stay silent (`$rows[] = ...`, helper calls, non-literal `yield from`, open row shapes, nested callables, closures with `use`, and non-literal attribute arguments).

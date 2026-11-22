@@ -6,7 +6,7 @@ on:
 
 jobs:
   suite:
-    name: PHPUnit ${{ matrix.phpunit }}
+    name: PHPUnit ${{ matrix.phpunit }} / Mago ${{ matrix.mago }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -14,12 +14,22 @@ jobs:
         include:
           - phpunit: "^10.5"
             php: "8.3"
+            mago: "latest"
           - phpunit: "^11.5"
             php: "8.3"
+            mago: "latest"
           - phpunit: "^12.0"
             php: "8.3"
+            mago: "latest"
           - phpunit: "^13.0"
             php: "8.4"
+            mago: "latest"
+          - phpunit: "^10.5"
+            php: "8.3"
+            mago: "1.60.2"
+          - phpunit: "^13.0"
+            php: "8.4"
+            mago: "1.60.2"
     steps:
       - uses: actions/checkout@v4
 
@@ -33,8 +43,13 @@ jobs:
       - name: Validate Composer metadata
         run: composer validate --strict
 
-      - name: Install dependencies
+      - name: Install dependencies (latest Mago)
+        if: matrix.mago == 'latest'
         run: composer update --no-interaction --prefer-dist --no-progress --with="phpunit/phpunit:${{ matrix.phpunit }}"
+
+      - name: Install dependencies (pinned Mago)
+        if: matrix.mago != 'latest'
+        run: composer update --no-interaction --prefer-dist --no-progress --with="phpunit/phpunit:${{ matrix.phpunit }}" --with="carthage-software/mago:${{ matrix.mago }}"
 
       - name: Validate conformance catalog
         run: php tests/check-spec.php

@@ -218,6 +218,7 @@ TOML;
         'eliminated_by_code' => countByCode($diff['removed']),
         'added_by_code' => countByCode($diff['added']),
         'added_samples' => array_slice($diff['added'], 0, 50),
+        'added_issues' => $diff['added'],
     ];
     $results[$name] = $entry;
 

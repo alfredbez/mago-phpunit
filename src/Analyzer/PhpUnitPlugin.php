@@ -19,12 +19,16 @@ use AlfredBez\MagoPhpunit\Analyzer\Providers\SetUpInitializer;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\TraitDoubleReturnTypeProvider;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\LegacyMockCalls;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\TestExceptionFilter;
+use Mago\Sdk\Analyzer\ClassLikeAnalysisHook;
+use Mago\Sdk\Analyzer\AfterAnalysisHook;
 use Mago\Sdk\Analyzer\Plugin;
 use Mago\Sdk\Analyzer\PluginDefinition;
 use Mago\Sdk\Analyzer\PluginRegistry;
 
 final class PhpUnitPlugin implements Plugin
 {
+    public function __construct(private readonly ClassLikeAnalysisHook&AfterAnalysisHook $dataProviders = new DataProviderArguments()) {}
+
     public function getDefinition(): PluginDefinition
     {
         return new PluginDefinition(
@@ -37,7 +41,7 @@ final class PhpUnitPlugin implements Plugin
 
     public function register(PluginRegistry $registry): void
     {
-        $dataProviders = new DataProviderArguments();
+        $dataProviders = $this->dataProviders;
         $legacyMocks = new LegacyMockCalls();
         $registry->enableProviderMemoization();
         $registry->registerMethodAssertionProvider(new AssertArrayHasKeyAssertion());

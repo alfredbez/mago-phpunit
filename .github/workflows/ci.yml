@@ -51,6 +51,10 @@ jobs:
         if: matrix.mago != 'latest'
         run: composer update --no-interaction --prefer-dist --no-progress --with="phpunit/phpunit:${{ matrix.phpunit }}" --with="carthage-software/mago:${{ matrix.mago }}"
 
+      - name: Verify installed Mago version
+        if: matrix.mago != 'latest'
+        run: test "$(php vendor/bin/mago --version)" = "mago ${{ matrix.mago }}"
+
       - name: Validate conformance catalog
         run: php tests/check-spec.php
 

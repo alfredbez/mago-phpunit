@@ -22,6 +22,37 @@ foreach ([false, true] as $disabled) {
     $issues = json_decode($output, true, 512, JSON_THROW_ON_ERROR)['issues'] ?? null;
     if (!is_array($issues) || $exit > 1 || str_contains($error, 'extension host')) { throw new RuntimeException($error . $output); }
     foreach ([
+        'aliased-legacy' => ['non-existent-method', $disabled ? 1 : 0],
+        'narrowed-legacy' => ['non-existent-method', 1],
+        'documented-property' => ['non-existent-method', $disabled ? 1 : 0],
+        'test-legacy-property' => ['non-existent-method', $disabled ? 1 : 0],
+        'plain-property' => [$disabled ? 'non-existent-method' : 'alfredbez/phpunit/mock-call-on-plain-type', 1],
+        'unrelated-property' => ['non-existent-method', 2],
+        'property-mutation' => ['non-existent-method', 1],
+        'documented-global' => ['non-existent-method', $disabled ? 1 : 0],
+        'documented-trait' => ['non-existent-method', $disabled ? 1 : 0],
+        'sibling-shadow' => ['non-existent-method', 2],
+        'after-sibling-shadow' => ['non-existent-method', $disabled ? 1 : 0],
+        'captured-before-mutation' => ['non-existent-method', $disabled ? 1 : 0],
+        'after-plain-mutation' => ['non-existent-method', 1],
+        'foreach-mutation' => ['non-existent-method', 2],
+        'reference-mutation' => ['non-existent-method', 1],
+        'literal-assignment' => ['non-existent-method', $disabled ? 1 : 0],
+        'global-legacy' => ['non-existent-method', $disabled ? 1 : 0],
+        'global-expects' => ['non-existent-method', $disabled ? 1 : 0],
+        'global-pass' => ['possibly-invalid-argument', $disabled ? 1 : 0],
+        'trait-legacy' => ['non-existent-method', $disabled ? 1 : 0],
+        'trait-pass' => ['possibly-invalid-argument', $disabled ? 1 : 0],
+        'helper-legacy' => ['non-existent-method', $disabled ? 1 : 0],
+        'helper-property' => ['non-existent-method', $disabled ? 1 : 0],
+        'helper-unrelated-property' => ['non-existent-method', 2],
+        'helper-plain' => ['non-existent-method', 1],
+        'closure-legacy' => ['non-existent-method', $disabled ? 1 : 0],
+        'arrow-legacy' => ['non-existent-method', $disabled ? 1 : 0],
+        'global-captured' => ['non-existent-method', $disabled ? 1 : 0],
+        'global-shadow' => ['non-existent-method', 2],
+        'mutable-legacy' => ['non-existent-method', 2],
+        'destructured-legacy' => ['non-existent-method', 2],
         'legacy-method' => ['non-existent-method', $disabled ? 1 : 0],
         'legacy-expects' => ['non-existent-method', $disabled ? 1 : 0],
         'legacy-pass' => ['possibly-invalid-argument', $disabled ? 1 : 0],
@@ -65,7 +96,7 @@ foreach ([false, true] as $disabled) {
         if ($actual !== $expected) { fwrite(STDERR, "FAIL disabled=" . (int)$disabled . " {$marker} {$code} expected {$expected} got {$actual}\n"); $failures++; }
     }
     if (!$disabled) {
-        $positiveMarkers = ['legacy-method', 'legacy-expects', 'legacy-pass', 'captured-union', 'allowed-method', 'partial-protected', 'partial-unknown', 'magic-dynamic', 'test-framework-exception'];
+        $positiveMarkers = ['aliased-legacy', 'documented-property', 'test-legacy-property', 'documented-global', 'documented-trait', 'after-sibling-shadow', 'captured-before-mutation', 'literal-assignment', 'global-legacy', 'global-expects', 'global-pass', 'trait-legacy', 'trait-pass', 'helper-legacy', 'helper-property', 'closure-legacy', 'arrow-legacy', 'global-captured', 'legacy-method', 'legacy-expects', 'legacy-pass', 'captured-union', 'allowed-method', 'partial-protected', 'partial-unknown', 'magic-dynamic', 'test-framework-exception'];
         foreach ($issues as $issue) {
             $primary = $issue['annotations'][0];
             foreach ($issue['annotations'] as $candidate) { if ($candidate['kind'] === 'Primary') { $primary = $candidate; break; } }

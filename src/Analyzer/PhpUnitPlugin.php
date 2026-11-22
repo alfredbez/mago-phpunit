@@ -43,6 +43,8 @@ final class PhpUnitPlugin implements Plugin
     {
         $dataProviders = $this->dataProviders;
         $legacyMocks = new LegacyMockCalls();
+        $legacySource = new \AlfredBez\MagoPhpunit\Analyzer\Providers\LegacyMockSourceIndex();
+        $registry->registerCodebaseScanHook($legacySource);
         $prophecy = new \AlfredBez\MagoPhpunit\Analyzer\Providers\ProphecySupport();
         $registry->registerMethodReturnTypeProvider(new \AlfredBez\MagoPhpunit\Analyzer\Providers\ProphecyReturnTypeProvider());
         $registry->registerMethodCallAnalysisHook($prophecy);
@@ -61,7 +63,7 @@ final class PhpUnitPlugin implements Plugin
         $registry->registerMethodReturnTypeProvider(new TraitDoubleReturnTypeProvider());
         $registry->registerMethodReturnTypeProvider(new \AlfredBez\MagoPhpunit\Analyzer\Providers\LegacyMockReturnTypeProvider());
         $registry->registerNodeAnalysisHook($legacyMocks);
-        $registry->registerIssueFilterHook(new \AlfredBez\MagoPhpunit\Analyzer\Providers\LegacyMockIssueFilter());
+        $registry->registerIssueFilterHook(new \AlfredBez\MagoPhpunit\Analyzer\Providers\LegacyMockIssueFilter($legacySource));
         $registry->registerIssueFilterHook(new TestExceptionFilter());
         $registry->registerClassInitializerProvider(new SetUpInitializer());
         $registry->registerClassLikeAnalysisHook($dataProviders);

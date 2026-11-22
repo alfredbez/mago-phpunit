@@ -8,6 +8,10 @@ trait WorkerTrait
     public function concrete(): string { return 'yes'; }
     abstract public function abstractWork(): string;
 }
+trait ConcreteWorkerTrait
+{
+    public function concrete(): string { return 'yes'; }
+}
 final class TraitContracts extends TestCase
 {
     public function testTrait(): string
@@ -18,7 +22,7 @@ final class TraitContracts extends TestCase
     }
     public function testObject(): string
     {
-        $object = $this->getObjectForTrait(WorkerTrait::class);
+        $object = $this->getObjectForTrait(ConcreteWorkerTrait::class);
         return $object->concrete(); // trait-object-return
     }
 }

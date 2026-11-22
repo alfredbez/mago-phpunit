@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace AlfredBez\MagoPhpunit\Analyzer\Providers;
 
+use Mago\Sdk\Analyzer\Codebase;
 use Mago\Sdk\Analyzer\FileAnalysisRequirement;
 use Mago\Sdk\Analyzer\NodeAnalysisHook;
 use Mago\Sdk\Analyzer\NodeAnalysisContext;
@@ -47,19 +48,9 @@ final class LegacyMockCalls implements NodeAnalysisHook
         if ($atomic->intersections !== null && $atomic->intersections !== []) {
             return;
         }
-        $class = $context->codebase->getClassLike($atomic->name);
-        $call = CallExpression::fromNode($context->source, $context->node);
         $name = $call->getName($context->source);
-        if ($class === null || $class->hasIncompleteHierarchy() || $class->mixins !== [] || $name === null
-            || $context->codebase->methodExists($atomic->name, $name)
-            || $context->codebase->methodExists($atomic->name, '__call')
-            || str_starts_with(strtolower($atomic->name), 'phpunit\\')) {
+        if ($name === null || !self::isPlainMockTarget($context->codebase, $atomic->name, $name)) {
             return;
-        }
-        foreach ($class->pseudoMethods as $pseudo) {
-            if (strcasecmp($pseudo, $name) === 0) {
-                return;
-            }
         }
         $inTest = false;
         foreach ($context->source->getAncestors($context->node) as $ancestor) {
@@ -71,12 +62,7 @@ final class LegacyMockCalls implements NodeAnalysisHook
                     continue;
                 }
                 $owner = $context->source->getResolvedName($child)?->name;
-                $metadata = $owner === null ? null : $context->codebase->getClassLike($owner);
-                foreach ($metadata?->parentClasses ?? [] as $parent) {
-                    if (strcasecmp($parent, 'PHPUnit\\Framework\\TestCase') === 0) {
-                        $inTest = true;
-                    }
-                }
+                $inTest = self::isTestClass($context->codebase, $owner);
             }
             break;
         }
@@ -87,6 +73,32 @@ final class LegacyMockCalls implements NodeAnalysisHook
             "PHPUnit {$name}() called on plain type `{$atomic->name}`.",
             new SourceLocation($context->analysis->file, $context->node->span),
         )->withHelp("Declare the double as {$atomic->name}&MockObject so its mocked API is known."));
+    }
+
+    public static function isTestClass(Codebase $codebase, ?string $name): bool
+    {
+        foreach ($name === null ? [] : ($codebase->getClassLike($name)?->parentClasses ?? []) as $parent) {
+            if (strcasecmp($parent, 'PHPUnit\\Framework\\TestCase') === 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static function isPlainMockTarget(Codebase $codebase, string $name, string $method): bool
+    {
+        $class = $codebase->getClassLike($name);
+        if ($class === null || $class->hasIncompleteHierarchy() || $class->mixins !== []
+            || $codebase->methodExists($name, $method) || $codebase->methodExists($name, '__call')
+            || str_starts_with(strtolower($name), 'phpunit\\')) {
+            return false;
+        }
+        foreach ($class->pseudoMethods as $pseudo) {
+            if (strcasecmp($pseudo, $method) === 0) {
+                return false;
+            }
+        }
+        return true;
     }
 
     public static function isLegacyUnion(?Type $type): bool

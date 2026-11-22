@@ -41,6 +41,16 @@ final class MockContracts extends TestCase
     {
         acceptsService($unrelated); // union-wrong-target
     }
+    public function testShadow(Service|MockObject $legacy): void
+    {
+        $closure = function (Service|Other $legacy): void {
+            $legacy->method('run'); // shadowed-union
+        };
+        $arrow = fn (Service|Other $legacy) => $legacy->method('run'); // shadowed-arrow
+        $inherited = function () use ($legacy): void {
+            $legacy->method('run'); // captured-union
+        };
+    }
     public function testPlain(Service $plain): void
     {
         $plain->method('run'); // plain-method

@@ -230,7 +230,8 @@ final class PhpUnitRule implements Rule
         }
         $replacement = lcfirst(substr($context->file->getText($name), 4));
         $issue = Issue::new('Use `#[Test]` to identify this test method.', $name->span);
-        if ($replacement !== '' && $file->providerMethod($class, $replacement) === null) {
+        if (preg_match('/^[a-zA-Z_\x80-\xff][a-zA-Z0-9_\x80-\xff]*$/D', $replacement) === 1
+            && $file->providerMethod($class, $replacement) === null) {
             $before = substr($context->file->contents, 0, $method->span->start);
             $lineStart = strrpos($before, "\n");
             $indent = substr($before, $lineStart === false ? 0 : $lineStart + 1);

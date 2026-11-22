@@ -28,6 +28,10 @@ final class Providers extends ProviderParent
     #[Test]
     public function testAlreadyAttributed(int $value): void {}
 
+    public function test123(): void {}
+
+    public function test9Cases(): void {}
+
     public function testCollision(): void {}
 
     public function collision(): void {}

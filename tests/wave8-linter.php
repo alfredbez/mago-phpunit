@@ -177,7 +177,7 @@ try {
     foreach ([
         'assertion-style-self' => 14,
         'assertion-style-this' => 15,
-        'prefer-test-attribute' => 5,
+        'prefer-test-attribute' => 7,
         'no-assert-empty' => 2,
         'data-provider-name-case' => 2,
     ] as $rule => $count) {
@@ -277,9 +277,10 @@ try {
         'A colliding test method rename must not be offered.',
     );
     linterCheck(
-        linterCounts(linterRun(['--only', $prefix . 'prefer-test-attribute'])) === ['prefer-test-attribute' => 1],
-        'Attribute fixes must be idempotent except for the unfixed collision.',
+        linterCounts(linterRun(['--only', $prefix . 'prefer-test-attribute'])) === ['prefer-test-attribute' => 3],
+        'Attribute fixes must leave collisions and invalid replacement names unchanged.',
     );
+    linterCheck(str_contains($provider, 'function test123()') && str_contains($provider, 'function test9Cases()'), 'Numeric method suffixes must not produce invalid PHP fixes.');
     linterReset();
     linterFix('data-provider-name-case');
     $provider = file_get_contents($directory . '/Providers.php');

@@ -70,6 +70,9 @@ final class LegacyMockIssueFilter implements IssueFilterHook
                     }
                 }
                 $beforeCall = substr($context->contents, $method->location->span->start, $receiver->start - $method->location->span->start);
+                if (self::hasShadowingFunction($beforeCall, $variable[1])) {
+                    return IssueFilterDecision::Keep;
+                }
                 if (preg_match('/\$' . preg_quote($variable[1], '/') . '\s*(?:=(?!=)|\?\?=|\+=|-=|\+\+|--)/', $beforeCall) === 1) {
                     return IssueFilterDecision::Keep;
                 }
@@ -86,5 +89,56 @@ final class LegacyMockIssueFilter implements IssueFilterHook
             }
         }
         return IssueFilterDecision::Keep;
+    }
+
+    private static function hasShadowingFunction(string $prefix, string $variable): bool
+    {
+        $scopes = [];
+        $pending = null;
+        $depth = 0;
+        $parsingParameters = false;
+        $outerFunction = true;
+        $arrowShadow = false;
+        foreach (token_get_all('<?php ' . $prefix) as $token) {
+            if (is_array($token)) {
+                if ($token[0] === T_FUNCTION || $token[0] === T_FN) {
+                    $pending = ['shadow' => false, 'arrow' => $token[0] === T_FN, 'outer' => $outerFunction];
+                    $outerFunction = false;
+                    $parsingParameters = true;
+                    $depth = 0;
+                } elseif ($token[0] === T_VARIABLE && $parsingParameters && $pending !== null && $token[1] === '$' . $variable) {
+                    $pending['shadow'] = true;
+                } elseif ($token[0] === T_DOUBLE_ARROW && $pending !== null && $pending['arrow']) {
+                    $arrowShadow = $pending['shadow'] && !$pending['outer'];
+                    $pending = null;
+                }
+                continue;
+            }
+            if ($parsingParameters) {
+                if ($token === '(') {
+                    $depth++;
+                } elseif ($token === ')' && --$depth === 0) {
+                    $parsingParameters = false;
+                }
+            }
+            if ($token === ';') {
+                $arrowShadow = false;
+            }
+            if ($token === '{') {
+                $scopes[] = $pending;
+                $pending = null;
+            } elseif ($token === '}') {
+                array_pop($scopes);
+            }
+        }
+        if ($arrowShadow) {
+            return true;
+        }
+        foreach ($scopes as $scope) {
+            if ($scope !== null && !$scope['outer'] && $scope['shadow']) {
+                return true;
+            }
+        }
+        return false;
     }
 }

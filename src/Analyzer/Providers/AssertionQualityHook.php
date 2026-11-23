@@ -240,7 +240,7 @@ final class AssertionQualityHook implements MethodCallAnalysisHook, NodeAnalysis
     private function scope(SourceFile $source, Node $node): ?Node
     {
         foreach ($source->getAncestors($node) as $ancestor) {
-            if (in_array($ancestor->kind, [NodeKind::Method, NodeKind::Function, NodeKind::Closure, NodeKind::ArrowFunction], true)) {
+            if (in_array($ancestor->kind, [NodeKind::Method, NodeKind::Function, NodeKind::Closure, NodeKind::ArrowFunction, NodeKind::Program], true)) {
                 return $ancestor;
             }
         }
@@ -253,6 +253,10 @@ final class AssertionQualityHook implements MethodCallAnalysisHook, NodeAnalysis
         $facts = ['captures' => [], 'references' => [], 'writes' => [], 'calls' => []];
         foreach ($source->getDescendants($scope) as $node) {
             if ($node->kind === NodeKind::ClosureUseClauseVariable) {
+                $closure = $this->scope($source, $node);
+                if ($closure === null || ($closure->id !== $scope->id && $this->scope($source, $closure)?->id !== $scope->id)) {
+                    continue;
+                }
                 $text = preg_replace('/\s+/', '', $source->getText($node));
                 $variable = ltrim($text, '&');
                 $facts['captures'][$variable] ??= $node->span->start;

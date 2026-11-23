@@ -67,6 +67,31 @@ final class Wave8MutableAssertionsRuntimeTest extends TestCase
         self::assertSame($this->eventFired, false);
     }
 
+    public function testIncludedStatementsShareCallbackStateAcrossNamespaces(): void
+    {
+        $file = tempnam(sys_get_temp_dir(), 'phpunit-callback-');
+        file_put_contents($file, <<<'PHP'
+<?php
+namespace CallbackSource {
+    use function PHPUnit\Framework\assertSame;
+    $value = 0;
+    $callback = static function () use (&$value): void { ++$value; };
+    assertSame(0, $value);
+}
+namespace CallbackDestination {
+    use function PHPUnit\Framework\assertSame;
+    $callback();
+    assertSame($value, 0);
+}
+PHP);
+        $this->expectException(AssertionFailedError::class);
+        try {
+            require $file;
+        } finally {
+            unlink($file);
+        }
+    }
+
     public function testClosedHandleAssertionCanFail(): void
     {
         $handle = fopen('php://memory', 'r+');

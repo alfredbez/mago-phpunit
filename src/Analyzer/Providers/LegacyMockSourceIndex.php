@@ -17,7 +17,7 @@ use Mago\Sdk\Syntax\SourceFile;
 
 final class LegacyMockSourceIndex implements CodebaseScanHook
 {
-    /** @var array<string, array<int, array{class: ?string, function: ?FunctionLikeIdentifier, variable: ?string, property: ?string, type: ?Type}>> */
+    /** @var array<string, array<int, array{class: ?string, function: ?FunctionLikeIdentifier, variable: ?string, property: ?string, type: ?Type, withoutMock: bool}>> */
     private array $calls = [];
 
     public function getTargets(): array
@@ -44,13 +44,13 @@ final class LegacyMockSourceIndex implements CodebaseScanHook
         }
     }
 
-    /** @return null|array{class: ?string, function: ?FunctionLikeIdentifier, variable: ?string, property: ?string, type: ?Type} */
+    /** @return null|array{class: ?string, function: ?FunctionLikeIdentifier, variable: ?string, property: ?string, type: ?Type, withoutMock: bool} */
     public function find(string $file, Span $method): ?array
     {
         return $this->calls[$file][$method->start] ?? null;
     }
 
-    /** @return array{class: ?string, function: ?FunctionLikeIdentifier, variable: ?string, property: ?string, type: ?Type} */
+    /** @return array{class: ?string, function: ?FunctionLikeIdentifier, variable: ?string, property: ?string, type: ?Type, withoutMock: bool} */
     private function declaration(SourceFile $source, CallExpression $call): array
     {
         $owner = null;
@@ -61,12 +61,14 @@ final class LegacyMockSourceIndex implements CodebaseScanHook
                 break;
             }
         }
-        $result = ['class' => $owner, 'function' => null, 'variable' => null, 'property' => null, 'type' => null];
+        $result = ['class' => $owner, 'function' => null, 'variable' => null, 'property' => null, 'type' => null, 'withoutMock' => false];
         $receiver = $source->getText($call->receiver);
+        $excludedMock = $this->excludedMockCondition($source, $call, $receiver);
+        $result['withoutMock'] = $excludedMock !== null;
         if (preg_match('/^\$this\s*->\s*([A-Za-z_][A-Za-z0-9_]*)$/D', $receiver, $match) === 1) {
             foreach ($ancestors as $scope) {
                 if ($scope->kind === NodeKind::Method) {
-                    if (!$this->hasWrite($source, $scope, $receiver, $call->node->span->start)) {
+                    if (!$this->hasWrite($source, $scope, $receiver, $call->node->span->start, $excludedMock)) {
                         $result['property'] = $match[1];
                     }
                     break;
@@ -82,7 +84,7 @@ final class LegacyMockSourceIndex implements CodebaseScanHook
             if (!in_array($scope->kind, [NodeKind::Method, NodeKind::Function, NodeKind::Closure, NodeKind::ArrowFunction], true)) {
                 continue;
             }
-            if ($this->hasWrite($source, $scope, $receiver, $before)) {
+            if ($this->hasWrite($source, $scope, $receiver, $before, $excludedMock)) {
                 return $result;
             }
             foreach ($source->getChildren($scope) as $child) {
@@ -159,11 +161,50 @@ final class LegacyMockSourceIndex implements CodebaseScanHook
         return null;
     }
 
-    private function hasWrite(SourceFile $source, Node $scope, string $receiver, int $before): bool
+    private function excludedMockCondition(SourceFile $source, CallExpression $call, string $receiver): ?Node
+    {
+        foreach ($source->getAncestors($call->node) as $ancestor) {
+            if ($ancestor->kind !== NodeKind::If) {
+                continue;
+            }
+            $condition = null;
+            $body = null;
+            foreach ($source->getChildren($ancestor) as $child) {
+                if ($child->kind === NodeKind::Expression) {
+                    $condition = $child;
+                } elseif ($child->kind === NodeKind::IfBody) {
+                    $body = $source->getChildren($child)[0] ?? null;
+                }
+            }
+            if ($condition === null || $body?->kind !== NodeKind::IfStatementBody
+                || preg_match('/^(!)?\s*(?:\(\s*)?' . preg_quote($receiver, '/') . '\s+instanceof\s+[\\\\A-Za-z_][\\\\A-Za-z0-9_]*\s*(?:\))?$/D', $source->getText($condition), $match) !== 1) {
+                continue;
+            }
+            $names = $source->getResolvedNames($condition);
+            if (count($names) !== 1 || strcasecmp($names[0]->name, 'PHPUnit\\Framework\\MockObject\\MockObject') !== 0) {
+                continue;
+            }
+            $negative = ($match[1] ?? '') === '!';
+            foreach ($source->getChildren($body) as $branch) {
+                $inBranch = $branch->span->start <= $call->node->span->start && $call->node->span->end <= $branch->span->end;
+                if ($inBranch && (($negative && $branch->kind === NodeKind::Statement)
+                    || (!$negative && $branch->kind === NodeKind::IfStatementBodyElseClause))) {
+                    return $condition;
+                }
+            }
+        }
+        return null;
+    }
+
+    private function hasWrite(SourceFile $source, Node $scope, string $receiver, int $before, ?Node $excludedMock): bool
     {
         foreach ($source->getDescendants($scope) as $node) {
             if ($node->span->start >= $before) {
                 break;
+            }
+            if ($excludedMock !== null && $node->kind === NodeKind::Binary
+                && $excludedMock->span->start <= $node->span->start && $node->span->end <= $excludedMock->span->end) {
+                continue;
             }
             $target = match ($node->kind) {
                 NodeKind::Assignment => str_contains($source->getText($node), '=&') || preg_match('/=\s*&/', $source->getText($node)) === 1 ? $node : ($source->getChildren($node)[0] ?? null),

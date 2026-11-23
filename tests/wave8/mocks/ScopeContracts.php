@@ -137,6 +137,33 @@ final class PropertyContracts extends TestCase
         $this->plain->method('run'); // plain-property
         $this->unrelated->method('run'); // unrelated-property
     }
+    public function testNarrowedParameter(Service|MockObject $legacy): void
+    {
+        if (!$legacy instanceof MockObject) {
+            $legacy->method('run'); // plain-narrowed-method
+            $legacy->expects(self::once()); // plain-narrowed-expects
+        }
+    }
+    public function testNarrowedProperty(): void
+    {
+        if (!$this->legacy instanceof MockObject) {
+            $this->legacy->method('run'); // plain-narrowed-property
+        }
+    }
+    public function testNarrowedElse(Service|MockObject $legacy): void
+    {
+        if ($legacy instanceof MockObject) {
+            $legacy->method('run'); // narrowed-double
+        } else {
+            $legacy->method('run'); // plain-narrowed-else
+        }
+    }
+    public function testNarrowedUnrelated(Service|Other|MockObject $legacy): void
+    {
+        if (!$legacy instanceof MockObject) {
+            $legacy->method('run'); // narrowed-unrelated
+        }
+    }
     public function testPropertyMutation(Service|Other $replacement): void
     {
         $this->legacy = $replacement;

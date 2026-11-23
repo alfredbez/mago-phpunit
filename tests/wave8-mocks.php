@@ -24,6 +24,12 @@ foreach ([false, true] as $disabled) {
     foreach ([
         'aliased-legacy' => ['non-existent-method', $disabled ? 1 : 0],
         'narrowed-legacy' => ['non-existent-method', 1],
+        'plain-narrowed-method' => [$disabled ? 'non-existent-method' : 'alfredbez/phpunit/mock-call-on-plain-type', 1],
+        'plain-narrowed-expects' => [$disabled ? 'non-existent-method' : 'alfredbez/phpunit/mock-call-on-plain-type', 1],
+        'plain-narrowed-property' => [$disabled ? 'non-existent-method' : 'alfredbez/phpunit/mock-call-on-plain-type', 1],
+        'plain-narrowed-else' => [$disabled ? 'non-existent-method' : 'alfredbez/phpunit/mock-call-on-plain-type', 1],
+        'narrowed-double' => ['non-existent-method', 0],
+        'narrowed-unrelated' => ['non-existent-method', 2],
         'documented-property' => ['non-existent-method', $disabled ? 1 : 0],
         'test-legacy-property' => ['non-existent-method', $disabled ? 1 : 0],
         'plain-property' => [$disabled ? 'non-existent-method' : 'alfredbez/phpunit/mock-call-on-plain-type', 1],
@@ -96,7 +102,7 @@ foreach ([false, true] as $disabled) {
         if ($actual !== $expected) { fwrite(STDERR, "FAIL disabled=" . (int)$disabled . " {$marker} {$code} expected {$expected} got {$actual}\n"); $failures++; }
     }
     if (!$disabled) {
-        $positiveMarkers = ['aliased-legacy', 'documented-property', 'test-legacy-property', 'documented-global', 'documented-trait', 'after-sibling-shadow', 'captured-before-mutation', 'literal-assignment', 'global-legacy', 'global-expects', 'global-pass', 'trait-legacy', 'trait-pass', 'helper-legacy', 'helper-property', 'closure-legacy', 'arrow-legacy', 'global-captured', 'legacy-method', 'legacy-expects', 'legacy-pass', 'captured-union', 'allowed-method', 'partial-protected', 'partial-unknown', 'magic-dynamic', 'test-framework-exception'];
+        $positiveMarkers = ['narrowed-double', 'aliased-legacy', 'documented-property', 'test-legacy-property', 'documented-global', 'documented-trait', 'after-sibling-shadow', 'captured-before-mutation', 'literal-assignment', 'global-legacy', 'global-expects', 'global-pass', 'trait-legacy', 'trait-pass', 'helper-legacy', 'helper-property', 'closure-legacy', 'arrow-legacy', 'global-captured', 'legacy-method', 'legacy-expects', 'legacy-pass', 'captured-union', 'allowed-method', 'partial-protected', 'partial-unknown', 'magic-dynamic', 'test-framework-exception'];
         foreach ($issues as $issue) {
             $primary = $issue['annotations'][0];
             foreach ($issue['annotations'] as $candidate) { if ($candidate['kind'] === 'Primary') { $primary = $candidate; break; } }
@@ -111,12 +117,13 @@ foreach ([false, true] as $disabled) {
             }
         }
         foreach ($issues as $issue) {
-            if ($issue['code'] !== 'non-existent-method') { continue; }
+            if (!in_array($issue['code'], ['non-existent-method', 'alfredbez/phpunit/mock-call-on-plain-type'], true)) { continue; }
             $primary = $issue['annotations'][0];
             $start = $primary['span']['start'];
             $line = isset($start['column']) ? $start['line'] : $start['line'] + 1;
             $contents = file($primary['span']['file_id']['name']);
-            if (str_contains($contents[$line - 1] ?? '', '// plain-')) { fwrite(STDERR, "Duplicate plain mock diagnostic\n"); $failures++; }
+            if ($issue['code'] === 'alfredbez/phpunit/mock-call-on-plain-type' && preg_match('/\/\/ (narrowed-legacy|narrowed-unrelated)\s*$/', $contents[$line - 1] ?? '') === 1) { fwrite(STDERR, "Unexpected custom diagnostic on application or unrelated union\n"); $failures++; }
+            if ($issue['code'] === 'non-existent-method' && str_contains($contents[$line - 1] ?? '', '// plain-')) { fwrite(STDERR, "Duplicate plain mock diagnostic\n"); $failures++; }
         }
     }
     if (!$disabled && version_compare($version, '12', '<')) {

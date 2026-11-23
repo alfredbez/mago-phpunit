@@ -7,6 +7,7 @@ namespace AlfredBez\MagoPhpunit\Analyzer\Providers;
 use Mago\Sdk\Analyzer\IssueFilterContext;
 use Mago\Sdk\Analyzer\IssueFilterDecision;
 use Mago\Sdk\Analyzer\IssueFilterHook;
+use Mago\Sdk\Analyzer\Type;
 use Mago\Sdk\Analyzer\Type\NamedObjectType;
 use Mago\Sdk\Reporting\AnnotationKind;
 
@@ -67,6 +68,14 @@ final class LegacyMockIssueFilter implements IssueFilterHook
             }
         } elseif ($declaration['property'] !== null && $declaration['class'] !== null) {
             $type = $context->codebase->getProperty($declaration['class'], '$' . $declaration['property'])?->type?->type;
+        }
+        if ($declaration['withoutMock'] && LegacyMockCalls::isLegacyUnion($type)) {
+            $members = array_values(array_filter(
+                $type->atomicTypes,
+                static fn ($member): bool => !$member instanceof NamedObjectType
+                    || strcasecmp($member->name, 'PHPUnit\\Framework\\MockObject\\MockObject') !== 0,
+            ));
+            $type = Type::fromAtomics(...$members);
         }
         if (LegacyMockCalls::isLegacyUnion($type)) {
             foreach ($type->atomicTypes as $member) {

@@ -13,6 +13,7 @@ use Mago\Sdk\Analyzer\NodeAnalysisContext;
 use Mago\Sdk\Analyzer\Type;
 use Mago\Sdk\Analyzer\Type\ClassLikeStringVariant;
 use Mago\Sdk\Analyzer\Type\MixedType;
+use Mago\Sdk\Analyzer\Type\ResourceType;
 use Mago\Sdk\Analyzer\Type\SimpleAtomicType;
 use Mago\Sdk\Analyzer\Type\SimpleAtomicTypeKind;
 use Mago\Sdk\Analyzer\Type\ScalarType;
@@ -21,6 +22,8 @@ use Mago\Sdk\Reporting\Issue;
 use Mago\Sdk\Reporting\Level;
 use Mago\Sdk\SourceLocation;
 use Mago\Sdk\Syntax\CallExpression;
+use Mago\Sdk\Syntax\Node;
+use Mago\Sdk\Syntax\SourceFile;
 
 final class AssertionQualityHook implements MethodCallAnalysisHook, NodeAnalysisHook
 {
@@ -34,7 +37,13 @@ final class AssertionQualityHook implements MethodCallAnalysisHook, NodeAnalysis
         'assertIsNotClosedResource', 'assertIsNotScalar', 'assertIsNotString',
     ];
 
-    public function __construct(private readonly bool $functions = false) {}
+    /** @var \WeakMap<SourceFile, array<int, array{captures: array<string, int>, references: array<string, int>, writes: array<string, list<int>>, calls: list<array{start: int, end: int, name: string, arguments: list<string>}>}>> */
+    private \WeakMap $scopes;
+
+    public function __construct(private readonly bool $functions = false)
+    {
+        $this->scopes = new \WeakMap();
+    }
 
     public function getTargets(): array
     {
@@ -104,14 +113,14 @@ final class AssertionQualityHook implements MethodCallAnalysisHook, NodeAnalysis
         $expected = null;
         if ($name === 'assertnotnull') {
             if (!$context->types->canBeIdentical($actual, Type::null())) {
-                $this->redundant($context, $name);
+                $this->redundant($context, $name, $actualNode, $actual);
             }
             return;
         }
         if ($name === 'assertsame') {
             [$first] = $arguments['expected'] ?? $arguments[0] ?? [null];
             if ($first instanceof Type && $this->singleton($first) && $this->singleton($actual) && $context->types->equals($first, $actual)) {
-                $this->redundant($context, $name);
+                $this->redundant($context, $name, $actualNode, $actual);
             }
             return;
         }
@@ -155,8 +164,113 @@ final class AssertionQualityHook implements MethodCallAnalysisHook, NodeAnalysis
             ? (!$context->types->canBeIdentical($actual, $expected)
                 || ($name === 'assertisnotnumeric' && $actual->getLiteralString() !== null && !is_numeric($actual->getLiteralString())))
             : $context->types->isContainedBy($actual, $expected))) {
-            $this->redundant($context, $name);
+            $this->redundant($context, $name, $actualNode, $actual);
         }
+    }
+
+    private function hasMutableFact(NodeAnalysisContext $context, Node $actual, Type $type): bool
+    {
+        $source = $context->source;
+        $scope = $this->scope($source, $context->node);
+        if ($scope === null) {
+            return false;
+        }
+        $identity = preg_replace('/\s+/', '', $source->getText($actual));
+        $property = $source->getDescendants($actual, NodeKind::PropertyAccess) !== []
+            || $source->getDescendants($actual, NodeKind::StaticPropertyAccess) !== []
+            || in_array($actual->kind, [NodeKind::PropertyAccess, NodeKind::StaticPropertyAccess], true);
+        $resource = false;
+        foreach ($type->atomicTypes as $atomic) {
+            $resource = $resource || $atomic instanceof ResourceType;
+        }
+        if (!$property && !$resource && preg_match('/^\$[a-zA-Z_][a-zA-Z0-9_]*$/D', $identity) !== 1) {
+            return false;
+        }
+        $facts = $this->scopes[$source] ?? [];
+        $facts[$scope->id] ??= $this->indexScope($source, $scope);
+        $this->scopes[$source] = $facts;
+        $facts = $facts[$scope->id];
+        $capture = ($resource ? $facts['captures'] : $facts['references'])[$identity] ?? null;
+        if (!$property && !$resource && $capture === null) {
+            return false;
+        }
+        $before = $context->node->span->start;
+        $after = $capture ?? $scope->span->start;
+        foreach ($facts['writes'][$identity] ?? [] as $write) {
+            if ($write < $before) {
+                $after = max($after, $write);
+            }
+        }
+        foreach ($facts['calls'] as $call) {
+            if ($call['start'] >= $before) {
+                break;
+            }
+            if ($call['start'] < $after || $call['end'] > $before) {
+                continue;
+            }
+            if ($property || $capture !== null || ($resource && (
+                in_array($identity, $call['arguments'], true)
+                || in_array($call['name'], ['fclose', 'pclose', 'gzclose', 'bzclose', 'closedir', 'socket_close'], true)
+            ))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private function scope(SourceFile $source, Node $node): ?Node
+    {
+        foreach ($source->getAncestors($node) as $ancestor) {
+            if (in_array($ancestor->kind, [NodeKind::Method, NodeKind::Function, NodeKind::Closure, NodeKind::ArrowFunction], true)) {
+                return $ancestor;
+            }
+        }
+        return null;
+    }
+
+    /** @return array{captures: array<string, int>, references: array<string, int>, writes: array<string, list<int>>, calls: list<array{start: int, end: int, name: string, arguments: list<string>}>} */
+    private function indexScope(SourceFile $source, Node $scope): array
+    {
+        $facts = ['captures' => [], 'references' => [], 'writes' => [], 'calls' => []];
+        foreach ($source->getDescendants($scope) as $node) {
+            if ($node->kind === NodeKind::ClosureUseClauseVariable) {
+                $text = preg_replace('/\s+/', '', $source->getText($node));
+                $variable = ltrim($text, '&');
+                $facts['captures'][$variable] ??= $node->span->start;
+                if (str_starts_with($text, '&')) {
+                    $facts['references'][$variable] ??= $node->span->start;
+                }
+                continue;
+            }
+            if (!in_array($node->kind, [NodeKind::Assignment, NodeKind::FunctionCall, NodeKind::MethodCall, NodeKind::StaticMethodCall, NodeKind::NullSafeMethodCall], true)
+                || $this->scope($source, $node)?->id !== $scope->id) {
+                continue;
+            }
+            if ($node->kind === NodeKind::Assignment) {
+                $target = $source->getChildren($node)[0] ?? null;
+                if ($target !== null) {
+                    $identity = preg_replace('/\s+/', '', $source->getText($target));
+                    $facts['writes'][$identity][] = $node->span->end;
+                }
+                continue;
+            }
+            if (!in_array($node->kind, [NodeKind::FunctionCall, NodeKind::MethodCall, NodeKind::StaticMethodCall, NodeKind::NullSafeMethodCall], true)) {
+                continue;
+            }
+            $call = CallExpression::fromNode($source, $node);
+            $arguments = [];
+            foreach ($call->arguments as $argument) {
+                $arguments[] = preg_replace('/\s+/', '', $source->getText($argument->value));
+            }
+            $facts['calls'][] = [
+                'start' => $node->span->start,
+                'end' => $node->span->end,
+                'name' => strtolower(ltrim($call->getName($source) ?? '', '\\')),
+                'arguments' => $arguments,
+            ];
+        }
+        usort($facts['calls'], static fn(array $a, array $b): int => $a['start'] <=> $b['start']);
+        return $facts;
     }
 
     private function isKnown(Type $type): bool
@@ -179,8 +293,11 @@ final class AssertionQualityHook implements MethodCallAnalysisHook, NodeAnalysis
         );
     }
 
-    private function redundant(NodeAnalysisContext $context, string $name): void
+    private function redundant(NodeAnalysisContext $context, string $name, ?Node $actual, Type $type): void
     {
+        if ($actual !== null && $this->hasMutableFact($context, $actual, $type)) {
+            return;
+        }
         $this->report($context, 'redundant-assertion', "Assertion {$name}() always passes for the static argument type.");
     }
 

@@ -9,6 +9,7 @@ use PHPUnit\Framework\TestCase;
 use PHPUnit\Framework\MockObject\MockObject as ScopeMock;
 use Wave8Mocks\Service as ScopeService;
 
+/** @throws \PHPUnit\Exception */
 function legacyHelper(Service|MockObject $legacy): void
 {
     $legacy->method('run')->willReturn('helper'); // global-legacy
@@ -17,6 +18,7 @@ function legacyHelper(Service|MockObject $legacy): void
 }
 trait LegacyHelperTrait
 {
+    /** @throws \PHPUnit\Exception */
     public function legacyTrait(Service|MockObject $legacy): void
     {
         $legacy->method('run')->willReturn('trait'); // trait-legacy
@@ -63,14 +65,20 @@ function destructuredLegacy(Service|MockObject $legacy, Service|Other $replaceme
     $legacy->method('run'); // destructured-legacy
 }
 
-/** @param Service|MockObject $legacy */
+/**
+ * @param Service|MockObject $legacy
+ * @throws \PHPUnit\Exception
+ */
 function documentedLegacy($legacy): void
 {
     $legacy->method('run')->willReturn('docblock'); // documented-global
 }
 trait DocumentedLegacyTrait
 {
-    /** @param Service|MockObject $legacy */
+    /**
+ * @param Service|MockObject $legacy
+ * @throws \PHPUnit\Exception
+ */
     public function documentedLegacy($legacy): void
     {
         $legacy->method('run'); // documented-trait

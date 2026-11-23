@@ -2,10 +2,21 @@
 
 declare(strict_types=1);
 
-namespace Wave8Constructor;
+namespace Wave8ImportedFactories {
+    use Wave8Constructor\ConstructedService;
+    use Wave8Constructor\HasMockMethods;
+
+    function importedUnionFactory(): ConstructedService|HasMockMethods
+    {
+        return new ConstructedService();
+    }
+}
+
+namespace Wave8Constructor {
 
 use PHPUnit\Framework\TestCase as CaseBase;
 use Wave8Constructor\ConstructedService as Target;
+use function Wave8ImportedFactories\importedUnionFactory as aliasedUnionFactory;
 
 final class ConstructedService
 {
@@ -25,6 +36,11 @@ final class TargetFactory
     {
         return new ConstructedService();
     }
+}
+
+function aliasedUnionFactory(): ConstructedService
+{
+    return new ConstructedService();
 }
 
 function makeTargetFunction(): ConstructedService
@@ -135,6 +151,59 @@ final class ConstructorCalls extends CaseBase
         $instance->method('run'); // constructor-dynamic-union-class
     }
 
+    /** @param class-string<ConstructedService> $class */
+    public function assignedDynamicWithVar(string $class): void
+    {
+        /** @var class-string<ConstructedService>|class-string<HasMockMethods> $class */
+        $plain = new $class();
+        $plain->method('run'); // constructor-dynamic-var-union
+    }
+
+    public function switchBleed(int $x, ConstructedService|HasMockMethods $plain): void
+    {
+        switch ($x) {
+            case 1:
+                $noop = 1;
+                $plain = new ConstructedService();
+                break;
+            case 2:
+                $plain->method('run'); // constructor-switch-bleed
+                break;
+        }
+    }
+
+    public function commentedVar(): void
+    {
+        // @var Target $plain
+        $plain = $this->makeUnion();
+        $plain->method('run'); // constructor-commented-var
+    }
+
+    public function laterVar(bool $flag): void
+    {
+        $plain = $this->makeUnion();
+        if ($flag) {
+            /** @var Target $plain */
+            $other = 1;
+        }
+        $plain->method('run'); // constructor-later-var
+    }
+
+    public function importedUnionFunction(): void
+    {
+        aliasedUnionFactory()->method('run'); // constructor-imported-union-fn
+    }
+
+    private function sink(mixed $a, mixed $b): void {}
+
+    public function sameStatementAliasMutation(): void
+    {
+        $plain = new HasMockMethods();
+        $alias =& $plain;
+        $plain = new Target();
+        $this->sink($alias = new HasMockMethods(), $plain->method('run')); // constructor-same-stmt-alias
+    }
+
     public function union(ConstructedService|HasMockMethods $plain): void
     {
         $plain->method('run'); // constructor-real-union
@@ -187,4 +256,5 @@ final class ApplicationCalls
 function globalConstructor(): void
 {
     (new Target())->method('run'); // constructor-global-direct
+}
 }

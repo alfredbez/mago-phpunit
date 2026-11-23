@@ -91,7 +91,8 @@ final class PhpUnitRule implements Rule
             'assertnotequals' => 'assertNotSame',
             default => null,
         };
-        if ($replacement === null || $call->firstLiteral === null || $call->firstLiteral === 'null') {
+        if ($replacement === null || $call->firstLiteral === null
+            || ($call->name === 'assertequals' && in_array($call->firstLiteral, ['null', 'true', 'false'], true))) {
             return;
         }
         $context->report(Issue::new(

@@ -21,7 +21,7 @@ final class LegacyMockSourceIndex
     private array $cache = [];
     /** @var list<PhpToken> */
     private array $tokens = [];
-    /** @var list<array{pos: int, text: string}> */
+    /** @var list<array{pos: int, text: string, doc: bool}> */
     private array $annotations = [];
     /** @var array<int, int> */
     private array $pairs = [];
@@ -31,6 +31,8 @@ final class LegacyMockSourceIndex
     private array $namespaces = [];
     /** @var list<array{start: int, namespace: int, aliases: array<string, string>}> */
     private array $imports = [];
+    /** @var list<array{start: int, namespace: int, aliases: array<string, string>}> */
+    private array $functionImports = [];
 
     /** @return null|array{class: ?string, function: ?FunctionLikeIdentifier, variable: ?string, property: ?string, type: ?Type, withoutMock: bool} */
     public function find(string $file, string $contents, Span $method, Span $receiverSpan, ?Codebase $codebase = null): ?array
@@ -120,11 +122,11 @@ final class LegacyMockSourceIndex
         $this->annotations = [];
         foreach ($tokens as $token) {
             if ($token->id === T_DOC_COMMENT || $token->id === T_COMMENT && str_contains($token->text, '@')) {
-                $this->annotations[] = ['pos' => $token->pos, 'text' => $token->text];
+                $this->annotations[] = ['pos' => $token->pos, 'text' => $token->text, 'doc' => $token->id === T_DOC_COMMENT];
             }
         }
         $this->tokens = array_values(array_filter($tokens, static fn(PhpToken $token): bool => !$token->isIgnorable() && !in_array($token->id, [T_CONSTANT_ENCAPSED_STRING, T_ENCAPSED_AND_WHITESPACE, T_INLINE_HTML], true)));
-        $this->pairs = $this->scopes = $this->namespaces = $this->imports = [];
+        $this->pairs = $this->scopes = $this->namespaces = $this->imports = $this->functionImports = [];
         $stack = [];
         foreach ($this->tokens as $index => $token) {
             if (in_array($token->id, [T_CURLY_OPEN, T_DOLLAR_OPEN_CURLY_BRACES, T_ATTRIBUTE], true) || in_array($token->text, ['(', '[', '{'], true)) {
@@ -163,7 +165,7 @@ final class LegacyMockSourceIndex
             if ($this->namespaces[$last]['end'] === $count) {
                 $this->namespaces[$last]['end'] = $index;
             }
-            $this->namespaces[] = ['start' => $end + 1, 'end' => $this->tokens[$end]->text === '{' ? ($this->pairs[$end] ?? $count) : $count, 'name' => trim($name, '\\')];
+            $this->namespaces[] = ['start' => $end + 1, 'end' => ($this->tokens[$end]->text ?? '') === '{' ? ($this->pairs[$end] ?? $count) : $count, 'name' => trim($name, '\\')];
         }
         foreach ($this->tokens as $index => $token) {
             $previous = $this->tokens[$index - 1] ?? null;
@@ -211,7 +213,15 @@ final class LegacyMockSourceIndex
             while ($end < $count && $this->tokens[$end]->text !== ';') {
                 $end++;
             }
-            $this->imports[] = ['start' => $index, 'namespace' => $this->namespaceAt($index), 'aliases' => $this->importAliases($index + 1, $end)];
+            $ns = $this->namespaceAt($index);
+            $classAliases = $this->importAliases($index + 1, $end, false);
+            if ($classAliases !== []) {
+                $this->imports[] = ['start' => $index, 'namespace' => $ns, 'aliases' => $classAliases];
+            }
+            $fnAliases = $this->importAliases($index + 1, $end, true);
+            if ($fnAliases !== []) {
+                $this->functionImports[] = ['start' => $index, 'namespace' => $ns, 'aliases' => $fnAliases];
+            }
         }
     }
 
@@ -248,6 +258,10 @@ final class LegacyMockSourceIndex
         if ($blockClose === null) {
             return null;
         }
+        if (($this->tokens[$blockOpen - 1]->text ?? '') === ')' && isset($this->pairs[$blockOpen - 1])
+            && ($this->tokens[$this->pairs[$blockOpen - 1] - 1]->id ?? null) === T_SWITCH) {
+            return null;
+        }
         $aliasedEarlier = $this->hasReferenceAlias($scope['start'], $start, $variable);
         $latest = null;
         $cursor = $blockOpen + 1;
@@ -257,7 +271,7 @@ final class LegacyMockSourceIndex
                 return null;
             }
             if ($cursor <= $start && $start < $stmtEnd) {
-                if ($this->isControlOrLabel($cursor) || $this->mentions($cursor, $start, $variable)) {
+                if ($this->isControlOrLabel($cursor) || $this->mentions($cursor, $start, $variable) || ($aliasedEarlier && $cursor < $start)) {
                     return null;
                 }
                 break;
@@ -265,7 +279,8 @@ final class LegacyMockSourceIndex
             if ($this->tokens[$cursor]->text === $variable && ($this->tokens[$cursor + 1]->text ?? '') === '='
                 && ($this->tokens[$cursor + 2]->text ?? '') !== '&' && $this->tokens[$stmtEnd - 1]->text === ';') {
                 $latest = [$cursor, $cursor + 2, $stmtEnd - 1];
-            } elseif ($aliasedEarlier || $this->isControlOrLabel($cursor) && ($this->tokens[$cursor]->id === T_GOTO || ($this->tokens[$cursor + 1]->text ?? '') === ':' || $this->mentions($cursor, $stmtEnd, $variable))
+            } elseif ($aliasedEarlier
+                || ($this->isControlOrLabel($cursor) && (in_array($this->tokens[$cursor]->id, [T_GOTO, T_CASE, T_DEFAULT], true) || ($this->tokens[$cursor + 1]->text ?? '') === ':' || $this->mentions($cursor, $stmtEnd, $variable)))
                 || $this->mentions($cursor, $stmtEnd, $variable)) {
                 $latest = null;
             }
@@ -282,7 +297,9 @@ final class LegacyMockSourceIndex
             return $rhs;
         }
         $prevPos = $this->tokens[max($blockOpen, $latest[0] - 1)]->pos;
-        return $annotations['type'] !== null && $annotations['pos'] !== null && $annotations['pos'] >= $prevPos
+        $assignPos = $this->tokens[$latest[0]]->pos;
+        return $annotations['type'] !== null && $annotations['pos'] !== null
+            && $annotations['pos'] >= $prevPos && $annotations['pos'] < $assignPos
             ? $annotations['type']
             : null;
     }
@@ -320,7 +337,8 @@ final class LegacyMockSourceIndex
             return null;
         }
         $classVar = $this->tokens[$start + 1]->text;
-        if ($this->hasWrite($scope['body'] + 1, $start, $classVar, null)) {
+        if ($this->hasWrite($scope['body'] + 1, $start, $classVar, null)
+            || $this->annotationState($scope['body'], $start, null)['blocked']) {
             return null;
         }
         $function = match ($scope['kind']) {
@@ -417,7 +435,7 @@ final class LegacyMockSourceIndex
         } elseif ($open === $start + 1 && in_array($this->tokens[$start]->id, [T_STRING, T_NAME_QUALIFIED, T_NAME_FULLY_QUALIFIED, T_NAME_RELATIVE], true)
             && $this->isName($this->tokens[$start]->text)) {
             $name = $this->tokens[$start]->text;
-            $resolved = $this->resolve($name, $start);
+            $resolved = $this->resolveFunction($name, $start);
             $fn = $codebase->getFunction($resolved);
             if ($fn === null && !str_contains($name, '\\')) {
                 $fn = $codebase->getFunction($name);
@@ -449,6 +467,9 @@ final class LegacyMockSourceIndex
                 return ['blocked' => true, 'type' => null, 'pos' => null];
             }
             if (preg_match_all('/@var\s+([^\s\*]+)(?:\s+(\$[A-Za-z_\x80-\xff][A-Za-z0-9_\x80-\xff]*))?/i', $annotation['text'], $matches, PREG_SET_ORDER)) {
+                if (!$annotation['doc']) {
+                    return ['blocked' => true, 'type' => null, 'pos' => null];
+                }
                 foreach ($matches as $match) {
                     $target = $match[2] ?? '';
                     if ($target !== '' && $target !== $variable) {
@@ -475,7 +496,7 @@ final class LegacyMockSourceIndex
 
     private function isControlOrLabel(int $at): bool
     {
-        return in_array($this->tokens[$at]->id, [T_IF, T_ELSEIF, T_ELSE, T_FOR, T_FOREACH, T_WHILE, T_DO, T_SWITCH, T_TRY, T_CATCH, T_FINALLY, T_DECLARE, T_GOTO], true)
+        return in_array($this->tokens[$at]->id, [T_IF, T_ELSEIF, T_ELSE, T_FOR, T_FOREACH, T_WHILE, T_DO, T_SWITCH, T_CASE, T_DEFAULT, T_BREAK, T_CONTINUE, T_TRY, T_CATCH, T_FINALLY, T_DECLARE, T_GOTO], true)
             || ($this->tokens[$at]->id === T_STRING && ($this->tokens[$at + 1]->text ?? '') === ':');
     }
 
@@ -694,21 +715,63 @@ final class LegacyMockSourceIndex
         return $resolved === null ? $this->qualify($name, $at) : $resolved . (isset($parts[1]) ? '\\' . $parts[1] : '');
     }
 
-    /** @return array<string, string> */
-    private function importAliases(int $start, int $end): array
+    private function resolveFunction(string $name, int $at): string
     {
-        if (in_array($this->tokens[$start]->id, [T_FUNCTION, T_CONST], true)) {
+        if (str_starts_with($name, '\\')) {
+            return substr($name, 1);
+        }
+        if (str_starts_with(strtolower($name), 'namespace\\')) {
+            return $this->qualify(substr($name, 10), $at);
+        }
+        if (str_contains($name, '\\')) {
+            return $this->resolve($name, $at);
+        }
+        $namespace = $this->namespaceAt($at);
+        $resolved = null;
+        foreach ($this->functionImports as $import) {
+            if ($import['start'] < $at && $import['namespace'] === $namespace) {
+                $resolved = $import['aliases'][strtolower($name)] ?? $resolved;
+            }
+        }
+        return $resolved ?? $this->qualify($name, $at);
+    }
+
+    /** @return array<string, string> */
+    private function importAliases(int $start, int $end, bool $functions = false): array
+    {
+        if (!isset($this->tokens[$start])) {
             return [];
+        }
+        $leading = $this->tokens[$start]->id;
+        if ($leading === T_CONST) {
+            return [];
+        }
+        $leadingFunction = $leading === T_FUNCTION;
+        if ($leadingFunction) {
+            if (!$functions) {
+                return [];
+            }
+            $start++;
         }
         $text = $this->text($start, $end, ' ');
         $prefix = '';
         if (($brace = strpos($text, '{')) !== false) {
             $prefix = preg_replace('/\s+/', '', substr($text, 0, $brace));
             $text = substr($text, $brace + 1, strrpos($text, '}') - $brace - 1);
+        } elseif ($functions && !$leadingFunction) {
+            return [];
         }
         $aliases = [];
         foreach (explode(',', $text) as $entry) {
-            if (preg_match('/^\s*(?:function|const)\b/i', $entry) === 1) {
+            $entryIsFunction = $leadingFunction;
+            if (preg_match('/^\s*const\b/i', $entry) === 1) {
+                continue;
+            }
+            if (preg_match('/^\s*function\s+(.+)$/i', $entry, $fnMatch) === 1) {
+                $entryIsFunction = true;
+                $entry = $fnMatch[1];
+            }
+            if ($entryIsFunction !== $functions) {
                 continue;
             }
             $parts = preg_split('/\s+as\s+/i', trim($entry));

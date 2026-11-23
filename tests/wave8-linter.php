@@ -134,7 +134,7 @@ try {
         'Exactly the three documented rules must be enabled by default.',
     );
     $defaults = linterRun();
-    $expected = ['assertion-style-static' => 3, 'strict-assertions' => 5, 'use-specific-assertions' => 10];
+    $expected = ['assertion-style-static' => 3, 'strict-assertions' => 4, 'use-specific-assertions' => 10];
     linterCheck(
         linterCounts($defaults) === $expected,
         'Default diagnostics differ: ' . json_encode(linterCounts($defaults)),
@@ -152,7 +152,7 @@ try {
     linterCheck(
         linterCounts(linterRun([$directory . '/Assertions.php'])) === [
             'assertion-style-self' => 14,
-            'strict-assertions' => 5,
+            'strict-assertions' => 4,
             'use-specific-assertions' => 10,
         ],
         'TOML must disable static style and activate self style.',
@@ -315,6 +315,25 @@ try {
     linterCheck(
         $fix['exit'] === 0 && str_contains(file_get_contents($directory . '/Fix.php'), 'static::assertNull($value)'),
         'mago fix must execute extension safe edits and converge: ' . $fix['stdout'] . $fix['stderr'],
+    );
+    linterReset();
+    $defaultFix = linterCommand([
+        $mago,
+        '--config',
+        $directory . '/mago.toml',
+        'lint',
+        '--fix',
+        '--potentially-unsafe',
+        $directory . '/Assertions.php',
+    ], $directory);
+    $fixedAssertions = file_get_contents($directory . '/Assertions.php');
+    linterCheck(
+        $defaultFix['exit'] <= 1
+        && str_contains($fixedAssertions, 'static::assertTrue($value)')
+        && !str_contains($fixedAssertions, 'static::assertEquals(true, $value)')
+        && !str_contains($fixedAssertions, 'static::assertSame(true, $value)')
+        && str_contains($fixedAssertions, 'static::assertSame(42, $value)'),
+        'Default rules must apply together without conflicting edits on assertEquals(true, $value).',
     );
 } finally {
     foreach (glob($directory . '/*') ?: [] as $path) {

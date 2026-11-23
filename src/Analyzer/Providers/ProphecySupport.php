@@ -79,8 +79,10 @@ final class ProphecySupport implements MethodCallAnalysisHook
         }
         if ($targets !== [] && !in_array($name, self::OBJECT_METHODS, true)) {
             $arguments = [];
+            $anyValues = Type::namedObject('Prophecy\\Argument\\Token\\AnyValuesToken');
             foreach ($context->invocation->arguments as $index => $argument) {
-                if ($argument->unpacked || $argument->name !== null || $argument->placeholder) {
+                if ($argument->unpacked || $argument->name !== null || $argument->placeholder
+                    || ($argument->type !== null && $context->types->isContainedBy($argument->type, $anyValues))) {
                     return Type::namedObject(self::METHOD, $revealed ?? self::targetType($targets), Type::literalString($context->invocation->name));
                 }
                 $type = $argument->type ?? Type::mixed();
@@ -275,8 +277,11 @@ final class ProphecySupport implements MethodCallAnalysisHook
                 $argumentType = $parameter->type?->type;
                 if ($setup !== null && $selected === null) {
                     $complete = true;
+                    $anyValues = Type::namedObject('Prophecy\\Argument\\Token\\AnyValuesToken');
                     foreach ($setup->arguments as $argument) {
-                        $complete = $complete && !$argument->unpacked && $argument->name === null && !$argument->placeholder;
+                        $argType = $context->analysis->getExpressionType($argument->value);
+                        $complete = $complete && !$argument->unpacked && $argument->name === null && !$argument->placeholder
+                            && ($argType === null || !$context->types->isContainedBy($argType, $anyValues));
                     }
                     if ($complete) {
                         $argumentType = Type::null();
@@ -298,9 +303,12 @@ final class ProphecySupport implements MethodCallAnalysisHook
                     $selectedCall = CallExpression::fromExpression($context->source, $selected->value);
                     if ($selectedCall === null) {
                         $argumentType = $selectedType ?? $argumentType;
-                    } elseif (strtolower($selectedCall->getName($context->source) ?? '') === 'type' && isset($selectedCall->arguments[0])) {
-                        $tokenName = $context->analysis->getExpressionType($selectedCall->arguments[0]->value)?->getLiteralString();
-                        $argumentType = $tokenName === null ? $argumentType : ($this->tokenType($context, $tokenName) ?? $argumentType);
+                    } elseif ($selectedCall->isStaticMethod() && strtolower($selectedCall->getName($context->source) ?? '') === 'type' && isset($selectedCall->arguments[0])) {
+                        $resolved = $context->source->getResolvedNames($selectedCall->receiver);
+                        if (strcasecmp(ltrim($resolved[0]->name ?? '', '\\'), 'Prophecy\\Argument') === 0) {
+                            $tokenName = $context->analysis->getExpressionType($selectedCall->arguments[0]->value)?->getLiteralString();
+                            $argumentType = $tokenName === null ? $argumentType : ($this->tokenType($context, $tokenName) ?? $argumentType);
+                        }
                     }
                 }
                 if ($argumentType !== null && !$this->unknown($argumentType) && !$this->canReturn($context, $argumentType, $return)

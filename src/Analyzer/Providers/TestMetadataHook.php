@@ -160,9 +160,9 @@ final class TestMetadataHook implements ClassLikeAnalysisHook
                 if ($version === null) {
                     continue;
                 }
-                if (preg_match('/^\s*(?:>=|<=|!=|==|>|<|=)/', $version) !== 1) {
+                if (preg_match('/^\s*(?:>=|<=|!=|<>|==|>|<|=)/', $version) !== 1) {
                     $this->report($context, $attribute, 'requires-without-operator', 'Use an explicit comparison operator in the required version.');
-                } elseif ($this->requiresCompleteVersion($context) && preg_match('/^\s*(?:>=|<=|!=|==|>|<|=)\s*\d+\.\d+\.\d+(?:[-+][^\s]+)?\s*$/', $version) !== 1) {
+                } elseif ($this->requiresCompleteVersion($context) && preg_match('/^\s*(?:>=|<=|!=|<>|==|>|<|=)\s*\d+\.\d+\.\d+(?:[-+][^\s]+)?\s*$/', $version) !== 1) {
                     $this->report($context, $attribute, 'incomplete-requires-version', 'Write a complete major.minor.patch version in the requirement.');
                 }
             }

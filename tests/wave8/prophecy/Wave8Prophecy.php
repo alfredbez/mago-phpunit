@@ -23,6 +23,7 @@ interface Service
     public function narrowed(\stdClass|string $value): string;
     public function optional(string $value = 'default'): string;
     public function optionalNullable(?string $value = null): ?string;
+    public function pair(int $id, string $label): string;
 }
 interface Other {}
 abstract class RestrictedService
@@ -178,6 +179,14 @@ final class ProphecyTest extends TestCase
     public function fluentType(): Service
     {
         return $this->prophesize()->willImplement(Service::class)->reveal();
+    }
+
+    public function ceteraReturnArgument(): void
+    {
+        $service = $this->prophesize(Service::class);
+        $service->pair(Argument::cetera())->willReturnArgument(1);
+        $held = $service->pair(Argument::cetera());
+        $held->willReturnArgument(1);
     }
 }
 

@@ -137,6 +137,7 @@ foreach ([false, true] as $disabled) {
         'test-framework-exception' => ['unhandled-thrown-type', $disabled ? 1 : 0],
         'test-application-exception' => ['unhandled-thrown-type', 1],
         'outside-framework-exception' => ['unhandled-thrown-type', 1],
+        'constructor-same-stmt-alias' => ['non-existent-method', 1],
     ] as $marker => [$code, $expected]) {
         $actual = 0;
         foreach ($issues as $issue) {
@@ -163,7 +164,8 @@ foreach ([false, true] as $disabled) {
     foreach ([
         'real-union', 'conditional-assignment', 'branch-mutation', 'annotated-union',
         'heterogeneous-ternary', 'factory-union', 'factory-assigned-union',
-        'stale-var-reassigned-union', 'dynamic-union-class',
+        'stale-var-reassigned-union', 'dynamic-union-class', 'dynamic-var-union',
+        'switch-bleed', 'commented-var', 'later-var', 'imported-union-fn',
         'application-direct', 'application-assigned', 'application-factory', 'global-direct',
     ] as $case) {
         $constructorExpected['constructor-' . $case] = [1, 0];

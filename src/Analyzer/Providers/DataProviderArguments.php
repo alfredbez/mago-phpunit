@@ -256,8 +256,10 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
             $context->codebase->getMultipleDeclaringMethods(array_values($providerMetaQueries));
         }
 
+        $providerCompleteness = [];
+        $major = PhpUnitVersion::major($context->codebase);
         foreach ($workItems as $item) {
-            $this->checkCompleteness($context, $source, $classMethods, $item);
+            $this->checkCompleteness($context, $source, $classMethods, $item, $major, $providerCompleteness);
             $testLabel = $item['label'];
             $effectiveDependencies = $this->valuePassingDependencies($context, $item['dependencies']);
             $test = null;
@@ -1501,9 +1503,8 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
         }
     }
 
-    private function checkCompleteness(NodeAnalysisContext $context, SourceFile $source, array $methods, array $item): void
+    private function checkCompleteness(NodeAnalysisContext $context, SourceFile $source, array $methods, array $item, int $major, array &$providerCompleteness): void
     {
-        $major = PhpUnitVersion::major($context->codebase);
         $allEmpty = $item['providers'] !== [];
         $names = [];
         foreach ($item['providers'] as $provider) {
@@ -1513,58 +1514,16 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                 continue;
             }
             $label = $provider['method'];
-            $isTest = str_starts_with(strtolower($label), 'test');
-            foreach ($source->getDescendants($method, NodeKind::Attribute) as $attribute) {
-                $isTest = $isTest || strtolower($this->attributeName($source, $attribute) ?? '') === 'phpunit\\framework\\attributes\\test';
-            }
-            if ($isTest) {
+            $facts = $providerCompleteness[$method->id] ??= $this->providerCompleteness($context, $source, $method, $label);
+            if ($facts['isTest']) {
                 $this->warning($context, $method->span, 'data-provider-is-test', "Data provider {$label}() is also a test method.");
             }
-            $returns = array_values(array_filter($source->getDescendants($method, NodeKind::Return), fn(Node $node) => !$this->isNestedCallable($source, $method, $node)));
-            $yields = array_values(array_filter($source->getDescendants($method, NodeKind::Yield), fn(Node $node) => !$this->isNestedCallable($source, $method, $node)));
-            $empty = $returns !== [] || $yields !== [];
-            if ($yields === []) {
-                foreach ($returns as $return) {
-                    if (preg_match('/^return\s*\[\s*\]\s*;$/s', trim($source->getText($return))) !== 1) {
-                        $empty = false;
-                    }
-                }
-            } else {
-                foreach ($yields as $yield) {
-                    if (preg_match('/^yield\s+from\s*\[\s*\]$/s', trim($source->getText($yield))) !== 1) {
-                        $empty = false;
-                    }
-                }
-            }
-            if (!$empty || ($major >= 13 && preg_match('/skipWhenEmpty\s*:\s*true/i', $source->getText($provider['span'])) === 1)) {
+            if (!$facts['empty'] || ($major >= 13 && preg_match('/skipWhenEmpty\s*:\s*true/i', $source->getText($provider['span'])) === 1)) {
                 $allEmpty = false;
             }
-            $keys = [];
-            foreach ($this->extractProviderRows($context->analysis, $source, $method) as $row) {
-                if (str_starts_with($row['label'], '"')) {
-                    $keys[substr($row['label'], 1, -1)] = $row['span'];
-                }
-            }
-            foreach ($source->getDescendants($method, NodeKind::YieldPair) as $pair) {
-                $conditional = false;
-                foreach ($source->getAncestors($pair) as $ancestor) {
-                    if ($ancestor->id === $method->id) {
-                        break;
-                    }
-                    if (in_array($ancestor->kind, [NodeKind::If, NodeKind::Switch, NodeKind::Match, NodeKind::For, NodeKind::Foreach, NodeKind::While, NodeKind::DoWhile, NodeKind::Closure, NodeKind::ArrowFunction], true)) {
-                        $conditional = true;
-                        break;
-                    }
-                }
-                if (!$conditional) {
-                    $key = $this->directLiteralString($source, $source->getChildren($pair)[0] ?? null);
-                    if ($key !== null) {
-                        if (isset($keys[$key])) {
-                            $this->report($context, $context->analysis->file, $pair->span, "Duplicate dataset key \"{$key}\" in {$item['label']}().");
-                        }
-                        $keys[$key] = $pair->span;
-                    }
-                }
+            $keys = $facts['keys'];
+            foreach ($facts['duplicates'] as [$key, $span]) {
+                $this->report($context, $context->analysis->file, $span, "Duplicate dataset key \"{$key}\" in {$item['label']}().");
             }
             foreach ($keys as $key => $span) {
                 if (isset($names[$key])) {
@@ -1602,6 +1561,60 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                 $seen[$key] = true;
             }
         }
+    }
+
+    /** @return array{isTest: bool, empty: bool, keys: array<string, Span>, duplicates: list<array{string, Span}>} */
+    private function providerCompleteness(NodeAnalysisContext $context, SourceFile $source, Node $method, string $label): array
+    {
+        $duplicates = [];
+        $isTest = str_starts_with(strtolower($label), 'test');
+        foreach ($source->getDescendants($method, NodeKind::Attribute) as $attribute) {
+            $isTest = $isTest || strtolower($this->attributeName($source, $attribute) ?? '') === 'phpunit\\framework\\attributes\\test';
+        }
+        $returns = array_values(array_filter($source->getDescendants($method, NodeKind::Return), fn(Node $node) => !$this->isNestedCallable($source, $method, $node)));
+        $yields = array_values(array_filter($source->getDescendants($method, NodeKind::Yield), fn(Node $node) => !$this->isNestedCallable($source, $method, $node)));
+        $empty = $returns !== [] || $yields !== [];
+        if ($yields === []) {
+            foreach ($returns as $return) {
+                if (preg_match('/^return\s*\[\s*\]\s*;$/s', trim($source->getText($return))) !== 1) {
+                    $empty = false;
+                }
+            }
+        } else {
+            foreach ($yields as $yield) {
+                if (preg_match('/^yield\s+from\s*\[\s*\]$/s', trim($source->getText($yield))) !== 1) {
+                    $empty = false;
+                }
+            }
+        }
+        $keys = [];
+        foreach ($this->extractProviderRows($context->analysis, $source, $method) as $row) {
+            if (str_starts_with($row['label'], '"')) {
+                $keys[substr($row['label'], 1, -1)] = $row['span'];
+            }
+        }
+        foreach ($source->getDescendants($method, NodeKind::YieldPair) as $pair) {
+            $conditional = false;
+            foreach ($source->getAncestors($pair) as $ancestor) {
+                if ($ancestor->id === $method->id) {
+                    break;
+                }
+                if (in_array($ancestor->kind, [NodeKind::If, NodeKind::Switch, NodeKind::Match, NodeKind::For, NodeKind::Foreach, NodeKind::While, NodeKind::DoWhile, NodeKind::Closure, NodeKind::ArrowFunction], true)) {
+                    $conditional = true;
+                    break;
+                }
+            }
+            if (!$conditional) {
+                $key = $this->directLiteralString($source, $source->getChildren($pair)[0] ?? null);
+                if ($key !== null) {
+                    if (isset($keys[$key])) {
+                        $duplicates[] = [$key, $pair->span];
+                    }
+                    $keys[$key] = $pair->span;
+                }
+            }
+        }
+        return ['isTest' => $isTest, 'empty' => $empty, 'keys' => $keys, 'duplicates' => $duplicates];
     }
 
     private function supportsProviderMixWarning(NodeAnalysisContext $context): bool

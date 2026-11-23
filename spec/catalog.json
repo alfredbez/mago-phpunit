@@ -723,7 +723,7 @@
       ],
       "fixture": "<?php use PHPUnit\\Framework\\Assert; function check(?string $value): string { Assert::assertNotSame(null, $value); return $value; }",
       "priority": "P1",
-      "versions": "Mago 1.60.2 and 1.61.0; PHP 8.3.37; PHPUnit 10.5.67, 11.5.58, and 12.5.40. PHPUnit 13 runtime verification belongs to the coordinator matrix.",
+      "versions": "Mago 1.60.2 and 1.61.0; PHP 8.3.37 with PHPUnit 10.5.67, 11.5.58, 12.5.40, and 12.5.45; PHP 8.4.28 and 8.5.13 with PHPUnit 13.4.8.",
       "coverage": [
         "tests/wave8/assertions/Wave8Assertions.php",
         "tests/wave8-assertions.php",
@@ -743,7 +743,7 @@
       ],
       "fixture": "<?php use PHPUnit\\Framework\\Assert; function check(?string $value): string { Assert::assertNotSame(null, $value); return $value; }",
       "priority": "P1",
-      "versions": "Mago 1.60.2 and 1.61.0; PHP 8.3.37; PHPUnit 10.5.67, 11.5.58, and 12.5.40. PHPUnit 13 runtime verification belongs to the coordinator matrix.",
+      "versions": "Mago 1.60.2 and 1.61.0; PHP 8.3.37 with PHPUnit 10.5.67, 11.5.58, 12.5.40, and 12.5.45; PHP 8.4.28 and 8.5.13 with PHPUnit 13.4.8.",
       "coverage": [
         "tests/wave8/assertions/Wave8Assertions.php",
         "tests/wave8-assertions.php",
@@ -763,7 +763,7 @@
       ],
       "fixture": "<?php use PHPUnit\\Framework\\Assert; function check(?string $value): string { Assert::assertNotSame(null, $value); return $value; }",
       "priority": "P1",
-      "versions": "Mago 1.60.2 and 1.61.0; PHP 8.3.37; PHPUnit 10.5.67, 11.5.58, and 12.5.40. PHPUnit 13 runtime verification belongs to the coordinator matrix.",
+      "versions": "Mago 1.60.2 and 1.61.0; PHP 8.3.37 with PHPUnit 10.5.67, 11.5.58, 12.5.40, and 12.5.45; PHP 8.4.28 and 8.5.13 with PHPUnit 13.4.8.",
       "coverage": [
         "tests/wave8/assertions/Wave8Assertions.php",
         "tests/wave8-assertions.php",
@@ -783,7 +783,7 @@
       ],
       "fixture": "<?php use PHPUnit\\Framework\\Assert; function check(?string $value): string { Assert::assertNotSame(null, $value); return $value; }",
       "priority": "P1",
-      "versions": "Mago 1.60.2 and 1.61.0; PHP 8.3.37; PHPUnit 10.5.67, 11.5.58, and 12.5.40. PHPUnit 13 runtime verification belongs to the coordinator matrix.",
+      "versions": "Mago 1.60.2 and 1.61.0; PHP 8.3.37 with PHPUnit 10.5.67, 11.5.58, 12.5.40, and 12.5.45; PHP 8.4.28 and 8.5.13 with PHPUnit 13.4.8.",
       "coverage": [
         "tests/wave8/assertions/Wave8Assertions.php",
         "tests/wave8-assertions.php",
@@ -803,7 +803,7 @@
       ],
       "fixture": "<?php use PHPUnit\\Framework\\Assert; function check(?string $value): string { Assert::assertNotSame(null, $value); return $value; }",
       "priority": "P1",
-      "versions": "Mago 1.60.2 and 1.61.0; PHP 8.3.37; PHPUnit 10.5.67, 11.5.58, and 12.5.40. PHPUnit 13 runtime verification belongs to the coordinator matrix.",
+      "versions": "Mago 1.60.2 and 1.61.0; PHP 8.3.37 with PHPUnit 10.5.67, 11.5.58, 12.5.40, and 12.5.45; PHP 8.4.28 and 8.5.13 with PHPUnit 13.4.8.",
       "coverage": [
         "tests/wave8/assertions/Wave8Assertions.php",
         "tests/wave8-assertions.php",

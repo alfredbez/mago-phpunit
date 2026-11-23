@@ -17,7 +17,8 @@ use PhpToken;
 
 final class LegacyMockSourceIndex
 {
-    private string $key = '';
+    /** @var array<string, self> */
+    private array $cache = [];
     /** @var list<PhpToken> */
     private array $tokens = [];
     /** @var list<array{pos: int, text: string}> */
@@ -35,10 +36,21 @@ final class LegacyMockSourceIndex
     public function find(string $file, string $contents, Span $method, Span $receiverSpan, ?Codebase $codebase = null): ?array
     {
         $key = $file . ':' . hash('xxh128', $contents);
-        if ($this->key !== $key) {
-            $this->index($contents);
-            $this->key = $key;
+        $snapshot = $this->cache[$key] ?? null;
+        if ($snapshot === null) {
+            if (count($this->cache) >= 16) {
+                $this->cache = [];
+            }
+            $snapshot = new self();
+            $snapshot->index($contents);
+            $this->cache[$key] = $snapshot;
         }
+        return $snapshot->findInSnapshot($contents, $method, $receiverSpan, $codebase);
+    }
+
+    /** @return null|array{class: ?string, function: ?FunctionLikeIdentifier, variable: ?string, property: ?string, type: ?Type, withoutMock: bool} */
+    private function findInSnapshot(string $contents, Span $method, Span $receiverSpan, ?Codebase $codebase): ?array
+    {
         $at = $this->tokenAt($method->start);
         if ($at === null || strcasecmp($this->tokens[$at]->text, 'method') !== 0 && strcasecmp($this->tokens[$at]->text, 'expects') !== 0) {
             return null;

@@ -15,6 +15,18 @@ use PHPUnit\Runner\Version;
 
 final class Wave8MetadataRuntimeTest extends TestCase
 {
+    public function testAttributesOverrideOnlyTheirOwnContainerDocs(): void
+    {
+        if ((int) Version::id() >= 12) {
+            self::markTestSkipped('Docblock metadata was removed in PHPUnit 12.');
+        }
+        $coverage = new CodeCoverage();
+        self::assertNotEmpty($coverage->linesToBeCovered(Wave8AttributePrecedence::class, 'testClassCoverage'));
+        self::assertNotEmpty($coverage->linesToBeCovered(Wave8AttributePrecedence::class, 'ignoredMethodDocs'));
+        $this->expectException(InvalidCoversTargetException::class);
+        $coverage->linesToBeCovered(Wave8AttributePrecedence::class, 'testActiveMethodDocs');
+    }
+
     public function testLegacyCoverageMapsRuntimeValidTargets(): void
     {
         if ((int) Version::id() >= 12) {
@@ -164,4 +176,19 @@ final class Wave8TraitDefaultMetadata
 {
     /** @covers ::covered */
     public function coveredMethod(): void {}
+}
+
+/** @covers Wave8MissingIgnoredClass */
+#[\PHPUnit\Framework\Attributes\CoversClass(Wave8LegacyMetadataCases::class)]
+final class Wave8AttributePrecedence
+{
+    public function testClassCoverage(): void {}
+    /**
+     * @covers Wave8MissingIgnoredMethod
+     * @dataProvider
+     */
+    #[\PHPUnit\Framework\Attributes\Test]
+    public function ignoredMethodDocs(): void {}
+    /** @covers Wave8MissingActiveMethod */
+    public function testActiveMethodDocs(): void {}
 }

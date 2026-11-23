@@ -21,6 +21,32 @@ final class TestMetadataHook implements ClassLikeAnalysisHook
 {
     private const VALUE_TAGS = ['covers', 'coversDefaultClass', 'dataProvider', 'depends', 'testWith', 'requires', 'uses', 'group', 'testdox'];
 
+    private const COMMON_METADATA_ATTRIBUTES = [
+        'backupglobals', 'backupstaticproperties', 'coversnothing', 'doesnotperformassertions',
+        'excludeglobalvariablefrombackup', 'excludestaticpropertyfrombackup', 'group', 'ignoredeprecations',
+        'ignorephpunitdeprecations', 'preserveglobalstate', 'requiresfunction', 'requiresmethod',
+        'requiresoperatingsystem', 'requiresoperatingsystemfamily', 'requiresphp', 'requiresphpextension',
+        'requiresphpunit', 'requiresphpunitextension', 'requiressetting', 'testdox',
+        'ticket',
+    ];
+
+    private const CLASS_METADATA_ATTRIBUTES = [
+        'coversclass', 'coversfunction', 'coversmethod', 'coverstrait',
+        'disablereturnvaluegenerationfortestdoubles', 'ignoreclassforcodecoverage', 'ignorefunctionforcodecoverage', 'ignoremethodforcodecoverage',
+        'large', 'medium', 'runclassinseparateprocess', 'runtestsinseparateprocesses',
+        'small', 'usesclass', 'usesfunction', 'usesmethod',
+        'usestrait',
+    ];
+
+    private const METHOD_METADATA_ATTRIBUTES = [
+        'after', 'afterclass', 'before', 'beforeclass',
+        'dataprovider', 'dataproviderexternal', 'depends', 'dependsexternal',
+        'dependsexternalusingdeepclone', 'dependsexternalusingshallowclone', 'dependsonclass', 'dependsonclassusingdeepclone',
+        'dependsonclassusingshallowclone', 'dependsusingdeepclone', 'dependsusingshallowclone', 'postcondition',
+        'precondition', 'runinseparateprocess', 'test', 'testwith',
+        'testwithjson', 'withouterrorhandler',
+    ];
+
     public function getTargets(): array
     {
         return [ClassLikeTarget::descendantsOf('PHPUnit\\Framework\\TestCase')];
@@ -47,7 +73,7 @@ final class TestMetadataHook implements ClassLikeAnalysisHook
         $class = $context->codebase->getClassLike($className);
         $major = PhpUnitVersion::major($context->codebase);
         $this->checkRequires($context, $context->node);
-        if ($major <= 11) {
+        if ($major <= 11 && !self::hasPhpUnitAttributes($context, $context->node)) {
             $this->checkAnnotations($context, $context->node);
         }
         foreach ($source->getChildren($context->node) as $member) {
@@ -56,7 +82,7 @@ final class TestMetadataHook implements ClassLikeAnalysisHook
                 continue;
             }
             $this->checkRequires($context, $method);
-            if ($major <= 11) {
+            if ($major <= 11 && !self::hasPhpUnitAttributes($context, $method)) {
                 $this->checkAnnotations($context, $method);
             }
             $methodName = null;
@@ -155,6 +181,32 @@ final class TestMetadataHook implements ClassLikeAnalysisHook
                 $this->report($context, $node, 'annotation-without-value', "Annotation @{$tag} requires whitespace followed by a value.");
             }
         }
+    }
+
+    public static function hasPhpUnitAttributes(NodeAnalysisContext $context, Node $container): bool
+    {
+        foreach ($context->source->getChildren($container) as $list) {
+            if ($list->kind !== NodeKind::AttributeList) {
+                continue;
+            }
+            foreach ($context->source->getChildren($list) as $attribute) {
+                if ($attribute->kind !== NodeKind::Attribute) {
+                    continue;
+                }
+                foreach ($context->source->getChildren($attribute) as $child) {
+                    $name = $context->source->getResolvedName($child)?->name;
+                    if ($name !== null && str_starts_with(strtolower($name), 'phpunit\\framework\\attributes\\')
+                        && $context->codebase->classExists($name)
+                        && in_array(strtolower(substr($name, (int) strrpos($name, '\\') + 1)), [
+                            ...self::COMMON_METADATA_ATTRIBUTES,
+                            ...($container->kind === NodeKind::Method ? self::METHOD_METADATA_ATTRIBUTES : self::CLASS_METADATA_ATTRIBUTES),
+                        ], true)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     public static function docblock(SourceFile $source, Node $node): ?string

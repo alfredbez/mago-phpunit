@@ -368,7 +368,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                 }
             }
 
-            if ($supportsDocblock && !$this->hasPhpUnitAttributes($source, $item['node'])) {
+            if ($supportsDocblock && !TestMetadataHook::hasPhpUnitAttributes($context, $item['node'])) {
                 $this->checkDocblockTestWith($context, $source, $item['node'], $testLabel, $schema, $effectiveDependencies, $checkedDepOffsets);
             }
 
@@ -705,7 +705,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
             }
         }
 
-        if ($supportsDocblock && !$this->hasPhpUnitAttributes($source, $method)) {
+        if ($supportsDocblock && !TestMetadataHook::hasPhpUnitAttributes($context, $method)) {
             $docblock = $this->attachedDocblock($source, $method);
             if ($docblock !== null && stripos($docblock, '@testWith') !== false) {
                 $hasTestWith = true;
@@ -1469,21 +1469,6 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                 $jsonKeyOrder,
             );
         }
-    }
-
-    private function hasPhpUnitAttributes(SourceFile $source, Node $method): bool
-    {
-        foreach ($source->getChildren($method) as $list) {
-            if ($list->kind !== NodeKind::AttributeList) {
-                continue;
-            }
-            foreach ($source->getChildren($list) as $attribute) {
-                if ($attribute->kind === NodeKind::Attribute && str_starts_with(strtolower($this->attributeName($source, $attribute) ?? ''), 'phpunit\\framework\\attributes\\')) {
-                    return true;
-                }
-            }
-        }
-        return false;
     }
 
     private function checkDocblockTestWith(NodeAnalysisContext $context, SourceFile $source, Node $method, string $test, array $schema, array $dependencies, array &$checkedDepOffsets): void

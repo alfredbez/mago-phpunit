@@ -109,3 +109,34 @@ final class LegacyTraitDefaultTest extends TestCase
     /** @covers ::traitMethod */
     public function testValid(): void {}
 }
+
+/** @covers MissingIgnoredClass */
+#[CoversClass(CoveredClass::class)]
+final class AttributePrecedenceTest extends TestCase
+{
+    /**
+     * @covers MissingIgnoredMethod
+     * @dataProvider
+     */
+    #[\PHPUnit\Framework\Attributes\Test]
+    public function ignoredMethodDocs(): void {}
+
+    /** @covers MissingActiveMethod */
+    public function testActiveMethodDocs(): void {}
+}
+
+/** @covers MissingUnrelatedClass */
+#[\AllowDynamicProperties]
+final class UnrelatedAttributeTest extends TestCase { public function testIt(): void {} }
+
+/** @covers MissingUnknownClass */
+#[\PHPUnit\Framework\Attributes\NotAnAttribute]
+final class UnknownAttributeTest extends TestCase { public function testIt(): void {} }
+
+/** @covers MissingCustomClass */
+#[\PHPUnit\Framework\Attributes\Wave8Custom]
+final class CustomAttributeTest extends TestCase { public function testIt(): void {} }
+
+namespace PHPUnit\Framework\Attributes;
+#[\Attribute(\Attribute::TARGET_CLASS)]
+final class Wave8Custom {}

@@ -80,4 +80,12 @@ foreach ([
 foreach (['<public>', '<protected>', '<private>', '*'] as $selector) {
     $suite->expect($coverage, 'final class UnsupportedLegacySelectorsTest', 'phpunit-invalid-covers-target', "@covers target `\\Wave8\\Analyzer\\CoveredClass::{$selector}` is not a coverable class method.", $legacy ? 1 : 0);
 }
+foreach ([
+    ['    public function testActiveMethodDocs()', 'MissingActiveMethod'],
+    ['#[\\AllowDynamicProperties]', 'MissingUnrelatedClass'],
+    ['#[\\PHPUnit\\Framework\\Attributes\\NotAnAttribute]', 'MissingUnknownClass'],
+    ['#[\\PHPUnit\\Framework\\Attributes\\Wave8Custom]', 'MissingCustomClass'],
+] as [$target, $missing]) {
+    $suite->expect($coverage, $target, 'phpunit-invalid-covers-target', "@covers target `{$missing}` is not a coverable class, trait, or function.", $legacy ? 1 : 0);
+}
 $suite->verify();

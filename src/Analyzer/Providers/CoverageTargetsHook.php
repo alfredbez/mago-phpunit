@@ -72,7 +72,7 @@ final class CoverageTargetsHook implements ClassLikeAnalysisHook
         $source = $context->source;
         $classNode = $context->node;
 
-        $classDoc = TestMetadataHook::docblock($source, $classNode) ?? '';
+        $classDoc = TestMetadataHook::hasPhpUnitAttributes($context, $classNode) ? '' : (TestMetadataHook::docblock($source, $classNode) ?? '');
         $this->checkAttributeContainer($context, $source, $classNode);
         if (PhpUnitVersion::supportsDocblockMetadata($context->codebase)) {
             $this->checkCoverageAnnotations($context, $classNode, $classDoc, '');
@@ -83,7 +83,7 @@ final class CoverageTargetsHook implements ClassLikeAnalysisHook
                 : ($member->kind === NodeKind::ClassLikeMember ? ($source->getChildren($member)[0] ?? null) : null);
             if ($method !== null && $method->kind === NodeKind::Method) {
                 $this->checkAttributeContainer($context, $source, $method);
-                if (PhpUnitVersion::supportsDocblockMetadata($context->codebase)) {
+                if (PhpUnitVersion::supportsDocblockMetadata($context->codebase) && !TestMetadataHook::hasPhpUnitAttributes($context, $method)) {
                     $this->checkCoverageAnnotations($context, $method, TestMetadataHook::docblock($source, $method) ?? '', $classDoc);
                 }
             }

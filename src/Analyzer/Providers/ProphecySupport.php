@@ -12,6 +12,10 @@ use Mago\Sdk\Analyzer\ReturnTypeProviderContext;
 use Mago\Sdk\Analyzer\Type;
 use Mago\Sdk\Analyzer\Metadata\FunctionLikeMetadata;
 use Mago\Sdk\Analyzer\Metadata\MetadataFlags;
+use Mago\Sdk\Analyzer\Type\ArrayItem;
+use Mago\Sdk\Analyzer\Type\ArrayKey;
+use Mago\Sdk\Analyzer\Type\ArrayKeyKind;
+use Mago\Sdk\Analyzer\Type\KeyedArrayType;
 use Mago\Sdk\Analyzer\Type\NamedObjectType;
 use Mago\Sdk\Analyzer\Type\MixedType;
 use Mago\Sdk\Analyzer\Type\SimpleAtomicType;
@@ -69,12 +73,27 @@ final class ProphecySupport implements MethodCallAnalysisHook
             $target = $type?->getLiteralClassString() ?? $type?->getLiteralString();
             if ($target !== null && $context->codebase->classOrInterfaceExists($target)) {
                 $target = strcasecmp($target, 'Traversable') === 0 ? 'Iterator' : $target;
+                if ($name === 'willextend') {
+                    $targets = array_values(array_filter($targets, $context->codebase->interfaceExists(...)));
+                }
                 $targets[] = $target;
                 return Type::namedObject(self::OBJECT, self::targetType(array_values(array_unique($targets))));
             }
         }
         if ($targets !== [] && !in_array($name, self::OBJECT_METHODS, true)) {
-            return Type::namedObject(self::METHOD, self::targetType($targets), Type::literalString($context->invocation->name));
+            $arguments = [];
+            foreach ($context->invocation->arguments as $index => $argument) {
+                if ($argument->unpacked || $argument->name !== null || $argument->placeholder) {
+                    return Type::namedObject(self::METHOD, self::targetType($targets), Type::literalString($context->invocation->name));
+                }
+                $type = $argument->type ?? Type::mixed();
+                if ($this->unknown($type) || $context->types->isContainedBy($type, Type::namedObject('Prophecy\\Argument\\Token\\TokenInterface'))) {
+                    continue;
+                }
+                $arguments[] = new ArrayItem(new ArrayKey(ArrayKeyKind::Integer, $index), false, $type);
+            }
+            return Type::namedObject(self::METHOD, self::targetType($targets), Type::literalString($context->invocation->name),
+                Type::fromAtomic(new KeyedArrayType($arguments, null, null, $arguments !== [])));
         }
         return null;
     }
@@ -193,6 +212,7 @@ final class ProphecySupport implements MethodCallAnalysisHook
         $setup = $promise->receiver !== null ? CallExpression::fromExpression($context->source, $promise->receiver) : null;
         $targets = [];
         $methodName = null;
+        $setupArguments = null;
         if ($setup?->receiver !== null) {
             $targets = self::targets($context->analysis->getExpressionType($setup->receiver));
             $methodName = $setup->getName($context->source);
@@ -202,6 +222,7 @@ final class ProphecySupport implements MethodCallAnalysisHook
                 if ($atomic instanceof NamedObjectType && strcasecmp($atomic->name, self::METHOD) === 0 && isset($atomic->parameters[0], $atomic->parameters[1])) {
                     $targets = self::targets(Type::namedObject(self::OBJECT, $atomic->parameters[0]));
                     $methodName = $atomic->parameters[1]->getLiteralString();
+                    $setupArguments = $atomic->parameters[2] ?? null;
                 }
             }
         }
@@ -255,6 +276,16 @@ final class ProphecySupport implements MethodCallAnalysisHook
                 }
                 $selected = $setup?->arguments[$index] ?? null;
                 $argumentType = $parameter->type?->type;
+                foreach ($setupArguments?->atomicTypes ?? [] as $atomic) {
+                    if (!$atomic instanceof KeyedArrayType) {
+                        continue;
+                    }
+                    foreach ($atomic->knownItems ?? [] as $item) {
+                        if ($item->key->kind === ArrayKeyKind::Integer && $item->key->value === $index) {
+                            $argumentType = $item->type;
+                        }
+                    }
+                }
                 if ($selected !== null && !$selected->unpacked) {
                     $selectedType = $context->analysis->getExpressionType($selected->value);
                     $selectedCall = CallExpression::fromExpression($context->source, $selected->value);
@@ -265,7 +296,8 @@ final class ProphecySupport implements MethodCallAnalysisHook
                         $argumentType = $tokenName === null ? $argumentType : ($this->tokenType($context, $tokenName) ?? $argumentType);
                     }
                 }
-                if ($argumentType !== null && !$this->unknown($argumentType) && !$this->canReturn($context, $argumentType, $return)) {
+                if ($argumentType !== null && !$this->unknown($argumentType) && !$this->canReturn($context, $argumentType, $return)
+                    && !$context->types->canBeIdentical($argumentType, $return)) {
                     $this->report($context, 'prophecy-invalid-return', "Parameter #{$index} cannot satisfy the return type of `{$target}::{$methodName}()`.");
                 }
                 continue;
@@ -350,7 +382,7 @@ final class ProphecySupport implements MethodCallAnalysisHook
             if (!$atomic instanceof NamedObjectType || strcasecmp($atomic->name, self::OBJECT) !== 0) {
                 continue;
             }
-            foreach (($atomic->parameters[0] ?? null)?->atomicTypes ?? [] as $target) {
+            foreach (($atomic->parameters[1] ?? $atomic->parameters[0] ?? null)?->atomicTypes ?? [] as $target) {
                 if ($target instanceof NamedObjectType) {
                     $targets[] = $target->name;
                     foreach ($target->intersections ?? [] as $intersection) {

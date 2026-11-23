@@ -21,10 +21,12 @@ interface Wave8RuntimeService
     public function countValue(): int;
     public function boolValue(): bool;
     public function nullable(): ?string;
+    public function narrowed(\stdClass|string $value): string;
 }
 interface Wave8RuntimeMarker {}
 class Wave8RuntimeBase { public function id(): int { return 42; } }
 final class Wave8RuntimeFinal {}
+class Wave8RuntimeReplacement {}
 trait Wave8RuntimeTrait {}
 enum Wave8RuntimeEnum { case Ready; }
 abstract class Wave8RuntimeRestricted
@@ -56,6 +58,35 @@ final class Wave8ProphecyRuntimeTest extends TestCase
         self::assertSame('found', $double->name(7));
         self::assertSame('echo', $double->echoName('echo'));
         self::assertSame(['first', 'second'], iterator_to_array($double->stream()));
+    }
+
+    public function testHeldArgumentPromiseRetainsLiteralSetup(): void
+    {
+        $service = $this->prophesize(Wave8RuntimeService::class);
+        $method = $service->narrowed('valid');
+        $method->willReturnArgument(0);
+        self::assertSame('valid', $service->reveal()->narrowed('valid'));
+    }
+
+    public function testHeldArgumentPromiseRejectsObjectSetupAtInvocation(): void
+    {
+        $service = $this->prophesize(Wave8RuntimeService::class);
+        $value = new \stdClass();
+        $method = $service->narrowed($value);
+        $method->willReturnArgument(0);
+        $this->expectException(\TypeError::class);
+        $service->reveal()->narrowed($value);
+    }
+
+    public function testParentReplacementRetainsInterfaces(): void
+    {
+        $p = $this->prophesize(Wave8RuntimeBase::class);
+        $p->willImplement(Wave8RuntimeMarker::class);
+        $p->willExtend(Wave8RuntimeReplacement::class);
+        $double = $p->reveal();
+        self::assertInstanceOf(Wave8RuntimeReplacement::class, $double);
+        self::assertNotInstanceOf(Wave8RuntimeBase::class, $double);
+        self::assertInstanceOf(Wave8RuntimeMarker::class, $double);
     }
 
     public function testExtensionAndImplementationMutateOneProphecy(): void

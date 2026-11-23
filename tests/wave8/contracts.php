@@ -10,13 +10,23 @@ final class Wave8Contracts
 
     public function expect(string $file, string $target, string $code, string $message, int $count = 1): void
     {
+        $this->expectCode($file, $target, 'alfredbez/phpunit/' . $code, $message, $count);
+    }
+
+    public function expectNative(string $file, string $target, string $code, int $count = 1): void
+    {
+        $this->expectCode($file, $target, $code, null, $count);
+    }
+
+    private function expectCode(string $file, string $target, string $code, ?string $message, int $count): void
+    {
         $source = file_get_contents($this->directory . '/' . $file);
         $offset = strpos($source, $target);
         if ($offset === false || strpos($source, $target, $offset + 1) !== false) {
             throw new RuntimeException("Contract target must occur once: {$target}");
         }
         $line = substr_count(substr($source, 0, $offset), "\n") + 1;
-        $this->expected[] = [$file, $line, 'alfredbez/phpunit/' . $code, $message, $count];
+        $this->expected[] = [$file, $line, $code, $message, $count];
     }
 
     public function verify(): void
@@ -38,10 +48,8 @@ final class Wave8Contracts
         $actual = [];
         $failures = [];
         foreach ($issues as $issue) {
-            if (str_contains($issue['code'], 'return-statement') || $issue['code'] === 'non-existent-method') {
-                $failures[] = $issue['message'];
-            }
-            if (!str_starts_with($issue['code'], 'alfredbez/phpunit/')) {
+            if (!str_starts_with($issue['code'], 'alfredbez/phpunit/')
+                && !str_contains($issue['code'], 'return-statement') && $issue['code'] !== 'non-existent-method') {
                 continue;
             }
             $primary = $issue['annotations'][0];
@@ -59,7 +67,7 @@ final class Wave8Contracts
         foreach ($this->expected as [$file, $line, $code, $message, $count]) {
             $found = 0;
             foreach ($actual as $key => $issue) {
-                if ($issue[0] === $file && $issue[1] === $line && $issue[2] === $code && $issue[3] === $message) {
+                if ($issue[0] === $file && $issue[1] === $line && $issue[2] === $code && ($message === null || $issue[3] === $message)) {
                     ++$found;
                     unset($actual[$key]);
                 }

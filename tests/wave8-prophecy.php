@@ -24,6 +24,7 @@ foreach ([
     ['reset()->willYield([])', 'Cannot configure willyield() for `Wave8\Prophecy\Service::reset()` returning void.'],
     ["notGenerator()->willYield(['bad'])", 'willYield() produces a Generator, which `Wave8\Prophecy\Service::notGenerator()` cannot return.'],
     ['$return->willReturn(new', 'Return value #0 cannot satisfy the return type of `Wave8\Prophecy\Service::find()`.'],
+    ['$invalid->willReturnArgument(0)', 'Parameter #0 cannot satisfy the return type of `Wave8\\Prophecy\\Service::narrowed()`.'],
     ['$argument->willReturnArgument(0)', 'Parameter #0 cannot satisfy the return type of `Wave8\Prophecy\Service::objectArgument()`.'],
     ['$yield->willYield([])', 'willYield() produces a Generator, which `Wave8\Prophecy\Service::notGenerator()` cannot return.'],
     ["sequence()->willYield('bad')", 'willYield() requires an array of yielded items.'],
@@ -49,4 +50,6 @@ foreach (['fixed', 'privateMethod', 'protectedMethod', 'staticMethod', '_hidden'
     $suite->expect($file, '$restricted->' . $method . '()', 'prophecy-invalid-setup', "Method `Wave8\\Prophecy\\RestrictedService::{$lower}()` cannot be configured by Prophecy.");
 }
 $suite->expect($file, '$legacy->find(1)', 'prophecy-union', 'Use ObjectProphecy<Foo> instead of Foo|ObjectProphecy.');
+$suite->expectNative($file, '// wrong-chain', 'invalid-return-statement');
+$suite->expectNative($file, '// wrong-variable', 'invalid-return-statement');
 $suite->verify();

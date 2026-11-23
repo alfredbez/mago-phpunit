@@ -20,6 +20,7 @@ interface Service
     public function sequence(): \Generator;
     public function notGenerator(): string;
     public function nullable(): ?string;
+    public function narrowed(\stdClass|string $value): string;
 }
 interface Other {}
 abstract class RestrictedService
@@ -98,6 +99,23 @@ final class ProphecyTest extends TestCase
         $yield->willYield([]);
     }
 
+    public function heldNarrowedArguments(\stdClass|string $dynamic): void
+    {
+        $service = $this->prophesize(Service::class);
+        $valid = $service->narrowed('valid');
+        $valid->willReturnArgument(0);
+        $invalid = $service->narrowed(new \stdClass());
+        $invalid->willReturnArgument(0);
+        $unresolved = $service->narrowed($dynamic);
+        $unresolved->willReturnArgument(0);
+        $token = $service->narrowed(Argument::any());
+        $token->willReturnArgument(0);
+        $arguments = ['valid'];
+        $unpacked = $service->narrowed(...$arguments);
+        $unpacked->willReturnArgument(0);
+        $service->narrowed('fluent')->willReturnArgument(0);
+    }
+
     /** @param list<mixed> $arguments */
     public function dynamicPromises(array $arguments, string $method): void
     {
@@ -152,5 +170,33 @@ final class ProphecyTest extends TestCase
     public function fluentType(): Service
     {
         return $this->prophesize()->willImplement(Service::class)->reveal();
+    }
+}
+
+class OldParent {}
+class NewParent {}
+final class ParentReplacementTest extends TestCase
+{
+    use ProphecyTrait;
+    public function wrongChain(): OldParent
+    {
+        return $this->prophesize(OldParent::class)->willExtend(NewParent::class)->reveal(); // wrong-chain
+    }
+    public function rightChain(): NewParent
+    {
+        return $this->prophesize(OldParent::class)->willExtend(NewParent::class)->reveal(); // right-chain
+    }
+    public function wrongVariable(): OldParent
+    {
+        $p = $this->prophesize(OldParent::class);
+        $p->willExtend(NewParent::class);
+        return $p->reveal(); // wrong-variable
+    }
+    public function rightVariable(): NewParent&Other
+    {
+        $p = $this->prophesize(OldParent::class);
+        $p->willImplement(Other::class);
+        $p->willExtend(NewParent::class);
+        return $p->reveal(); // right-variable
     }
 }

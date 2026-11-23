@@ -92,7 +92,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
     /** @var WeakMap<SourceFile, array<string, array<string, Node>>> */
     private WeakMap $methodsByFile;
 
-    /** @var WeakMap<SourceFile, array<int, list<array{type: Type, span: Span, label: string, keyOrder: ?list<string>}>>> */
+    /** @var WeakMap<SourceFile, array<string, list<array{type: Type, span: Span, label: string, keyOrder: ?list<string>}>>> */
     private WeakMap $providerRowsByFile;
 
     /** @var array<string, array<string, array{file: string, label: string, rows: list<array{type: Type, span: Span, label: string, keyOrder: ?list<string>}>}>> */
@@ -1257,9 +1257,10 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
      */
     private function extractProviderRows(FileAnalysis $analysis, SourceFile $source, Node $provider, bool $needsKeyOrder = false): array
     {
+        $cacheKey = $provider->id . ':' . (int) $needsKeyOrder;
         $cached = $this->providerRowsByFile[$source] ?? [];
-        if (isset($cached[$provider->id])) {
-            return $cached[$provider->id];
+        if (isset($cached[$cacheKey])) {
+            return $cached[$cacheKey];
         }
 
         $rows = [];
@@ -1305,7 +1306,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                 ];
             }
 
-            $cached[$provider->id] = $rows;
+            $cached[$cacheKey] = $rows;
             $this->providerRowsByFile[$source] = $cached;
 
             return $rows;
@@ -1331,7 +1332,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
             }
         }
 
-        $cached[$provider->id] = $rows;
+        $cached[$cacheKey] = $rows;
         $this->providerRowsByFile[$source] = $cached;
 
         return $rows;

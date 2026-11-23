@@ -249,6 +249,7 @@ static::assertEmpty($result);
 
 ## Known limitations
 
+- Factory results and other plain receivers without a safe declaration or constructor proof can produce both native and extension mock-call reports. The supported SDKs filter native issues before exposing the full receiver type, so unrestricted once-only reporting remains unresolved.
 - PHPUnit 10.5's native `@psalm-assert empty` annotation makes Mago infer `never` for an empty Countable and discard the valid string `"0"`. The extension deliberately avoids duplicating native assertions. Runtime tests prove both values pass PHPUnit, and analyzer tests preserve parity with `--no-extensions` for this inherited defect.
 - Exact array count return typing applies to normal `count()`. Recursive or dynamic modes, optional shapes, unknown lengths, and Countable objects keep native behavior.
 - Property shapes apply only to generic objects, mixed values, and compatible object shapes. They do not replace concrete class types.

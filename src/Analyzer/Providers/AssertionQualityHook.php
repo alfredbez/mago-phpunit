@@ -118,8 +118,11 @@ final class AssertionQualityHook implements MethodCallAnalysisHook, NodeAnalysis
             return;
         }
         if ($name === 'assertsame') {
-            [$first] = $arguments['expected'] ?? $arguments[0] ?? [null];
+            [$first, $expectedNode] = $arguments['expected'] ?? $arguments[0] ?? [null, null];
             if ($first instanceof Type && $this->singleton($first) && $this->singleton($actual) && $context->types->equals($first, $actual)) {
+                if ($expectedNode !== null && $this->hasMutableFact($context, $expectedNode, $first)) {
+                    return;
+                }
                 $this->redundant($context, $name, $actualNode, $actual);
             }
             return;

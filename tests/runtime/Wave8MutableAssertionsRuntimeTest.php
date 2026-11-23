@@ -47,6 +47,26 @@ final class Wave8MutableAssertionsRuntimeTest extends TestCase
         $this->checkDispatcher(true);
     }
 
+    public function testExpectedCounterCanChangeAfterCallback(): void
+    {
+        $value = 0;
+        $callback = static function () use (&$value): void { ++$value; };
+        self::assertSame(0, $value);
+        $callback();
+        $this->expectException(AssertionFailedError::class);
+        self::assertSame($value, 0);
+    }
+
+    public function testExpectedPropertyCanChangeAfterCallback(): void
+    {
+        $callback = function (): void { $this->eventFired = true; };
+        $this->eventFired = false;
+        self::assertSame(false, $this->eventFired);
+        $callback();
+        $this->expectException(AssertionFailedError::class);
+        self::assertSame($this->eventFired, false);
+    }
+
     public function testClosedHandleAssertionCanFail(): void
     {
         $handle = fopen('php://memory', 'r+');

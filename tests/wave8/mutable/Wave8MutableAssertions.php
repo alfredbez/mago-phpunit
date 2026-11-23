@@ -54,6 +54,27 @@ final class MutableAssertionsTest extends TestCase
         self::assertTrue($this->eventFired); // fresh property assignment
     }
 
+    public function referenceOnExpectedSide(): void
+    {
+        $value = 0;
+        $callback = static function () use (&$value): void { ++$value; };
+        self::assertSame(0, $value); // initial reference fact
+        $callback();
+        self::assertSame($value, 0); // expected counter can change
+        $fixed = 3;
+        self::assertSame($fixed, 3); // stable expected variable
+    }
+
+    public function propertyOnExpectedSide(bool $fire): void
+    {
+        $dispatcher = new Dispatcher(function (): void { $this->eventFired = true; });
+        $this->eventFired = false;
+        self::assertSame(false, $this->eventFired); // initial property fact
+        $dispatcher->dispatch($fire);
+        self::assertSame($this->eventFired, false); // expected property can change
+        self::assertSame('fixed', 'fixed'); // stable expected literal
+    }
+
     public function closedHandle(): void
     {
         $handle = fopen('php://memory', 'r+');

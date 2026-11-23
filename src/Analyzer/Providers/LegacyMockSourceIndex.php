@@ -15,6 +15,8 @@ final class LegacyMockSourceIndex
     private string $key = '';
     /** @var list<PhpToken> */
     private array $tokens = [];
+    /** @var list<int> */
+    private array $annotations = [];
     /** @var array<int, int> */
     private array $pairs = [];
     /** @var list<array{kind: string, start: int, end: int, body: int, parameters: ?int, name: ?string}> */
@@ -36,13 +38,17 @@ final class LegacyMockSourceIndex
         if ($at === null || strcasecmp($this->tokens[$at]->text, 'method') !== 0 && strcasecmp($this->tokens[$at]->text, 'expects') !== 0) {
             return null;
         }
+        $class = $this->enclosing($at, ['class']);
+        $owner = $class === null ? null : $class['name'];
+        $constructed = $owner === null ? null : $this->constructedReceiver($at, $receiverSpan);
+        if ($constructed !== null) {
+            return ['class' => $owner, 'function' => null, 'variable' => null, 'property' => null, 'type' => $constructed, 'withoutMock' => false];
+        }
         $receiver = preg_replace('/\s+/', '', substr($contents, $receiverSpan->start, $receiverSpan->length()));
         if (preg_match('/^\$[a-zA-Z_][a-zA-Z0-9_]*$/D', $receiver) !== 1
             && preg_match('/^\$this->([a-zA-Z_][a-zA-Z0-9_]*)$/D', $receiver, $property) !== 1) {
             return null;
         }
-        $class = $this->enclosing($at, ['class']);
-        $owner = $class === null ? null : $class['name'];
         $excluded = $this->excludedCondition($at, $receiver);
         $result = ['class' => $owner, 'function' => null, 'variable' => null, 'property' => null, 'type' => null, 'withoutMock' => $excluded !== null];
         if (isset($property[1])) {
@@ -93,7 +99,14 @@ final class LegacyMockSourceIndex
 
     private function index(string $contents): void
     {
-        $this->tokens = array_values(array_filter(PhpToken::tokenize($contents), static fn(PhpToken $token): bool => !$token->isIgnorable() && !in_array($token->id, [T_CONSTANT_ENCAPSED_STRING, T_ENCAPSED_AND_WHITESPACE, T_INLINE_HTML], true)));
+        $tokens = PhpToken::tokenize($contents);
+        $this->annotations = [];
+        foreach ($tokens as $token) {
+            if ($token->id === T_DOC_COMMENT || $token->id === T_COMMENT && str_contains($token->text, '@')) {
+                $this->annotations[] = $token->pos;
+            }
+        }
+        $this->tokens = array_values(array_filter($tokens, static fn(PhpToken $token): bool => !$token->isIgnorable() && !in_array($token->id, [T_CONSTANT_ENCAPSED_STRING, T_ENCAPSED_AND_WHITESPACE, T_INLINE_HTML], true)));
         $this->pairs = $this->scopes = $this->namespaces = $this->imports = [];
         $stack = [];
         foreach ($this->tokens as $index => $token) {
@@ -183,6 +196,77 @@ final class LegacyMockSourceIndex
             }
             $this->imports[] = ['start' => $index, 'namespace' => $this->namespaceAt($index), 'aliases' => $this->importAliases($index + 1, $end)];
         }
+    }
+
+    private function constructedReceiver(int $at, Span $receiver): ?Type
+    {
+        $scope = $this->enclosing($at, ['method', 'function', 'closure', 'arrow']);
+        $start = $this->tokenAt($receiver->start);
+        if ($scope === null || $start === null) {
+            return null;
+        }
+        foreach ($this->annotations as $offset) {
+            if ($this->tokens[$scope['body']]->pos <= $offset && $offset < $this->tokens[$at]->pos) {
+                return null;
+            }
+        }
+        $end = $start;
+        while (isset($this->tokens[$end]) && $this->tokens[$end]->pos < $receiver->end) {
+            $end++;
+        }
+        $type = $this->namedConstructor($start, $end);
+        if ($type !== null) {
+            return $type;
+        }
+        if ($end !== $start + 1 || $this->tokens[$start]->id !== T_VARIABLE
+            || $at !== $start + 2 || ($this->tokens[$start - 1]->text ?? '') !== ';'
+            || $this->tokens[$scope['body']]->text !== '{') {
+            return null;
+        }
+        foreach ($this->pairs as $open => $close) {
+            if ($scope['body'] < $open && $open < $start && $start < $close && $this->tokens[$open]->text !== '{') {
+                return null;
+            }
+        }
+        $assignment = $start - 2;
+        while ($assignment > $scope['body']) {
+            if (isset($this->pairs[$assignment]) && $this->pairs[$assignment] < $assignment) {
+                $assignment = $this->pairs[$assignment] - 1;
+                continue;
+            }
+            if (in_array($this->tokens[$assignment]->text, [';', '{', '}'], true)) {
+                break;
+            }
+            $assignment--;
+        }
+        $assignment++;
+        $variable = $this->tokens[$start]->text;
+        if (($this->tokens[$assignment]->text ?? '') !== $variable || ($this->tokens[$assignment + 1]->text ?? '') !== '='
+            || $this->mentions($scope['start'], $assignment, $variable)) {
+            return null;
+        }
+        return $this->namedConstructor($assignment + 2, $start - 1);
+    }
+
+    private function namedConstructor(int $start, int $end): ?Type
+    {
+        while (($this->tokens[$start]->text ?? '') === '(' && ($this->pairs[$start] ?? null) === $end - 1) {
+            $start++;
+            $end--;
+        }
+        if (($this->tokens[$start]->id ?? null) !== T_NEW) {
+            return null;
+        }
+        $name = $this->tokens[$start + 1] ?? null;
+        if ($name === null || !in_array($name->id, [T_STRING, T_NAME_QUALIFIED, T_NAME_FULLY_QUALIFIED, T_NAME_RELATIVE], true)
+            || !$this->isName($name->text) || in_array(strtolower($name->text), ['self', 'parent', 'static'], true)) {
+            return null;
+        }
+        $arguments = $start + 2;
+        if ($arguments !== $end && (($this->tokens[$arguments]->text ?? '') !== '(' || ($this->pairs[$arguments] ?? null) !== $end - 1)) {
+            return null;
+        }
+        return Type::namedObject($this->resolve($name->text, $start));
     }
 
     private function tokenAt(int $offset): ?int

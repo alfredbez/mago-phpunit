@@ -151,6 +151,33 @@ foreach ([false, true] as $disabled) {
         }
         if ($actual !== $expected) { fwrite(STDERR, "FAIL disabled=" . (int)$disabled . " {$marker} {$code} expected {$expected} got {$actual}\n"); $failures++; }
     }
+    $constructorExpected = [];
+    foreach (['direct-method', 'direct-expects', 'wrapped', 'arguments', 'namespace-relative', 'assigned-method', 'assigned-expects'] as $case) {
+        $constructorExpected['constructor-' . $case] = [$disabled ? 1 : 0, $disabled ? 0 : 1];
+    }
+    foreach (['real-union', 'conditional-assignment', 'branch-mutation', 'annotated-union', 'application-direct', 'application-assigned', 'global-direct'] as $case) {
+        $constructorExpected['constructor-' . $case] = [1, 0];
+    }
+    foreach (['defined-method', 'defined-expects'] as $case) {
+        $constructorExpected['constructor-' . $case] = [0, 0];
+    }
+    foreach ($constructorExpected as $marker => $expected) {
+        $actual = [0, 0];
+        foreach ($issues as $issue) {
+            $primary = $issue['annotations'][0];
+            foreach ($issue['annotations'] as $candidate) { if ($candidate['kind'] === 'Primary') { $primary = $candidate; break; } }
+            $start = $primary['span']['start'];
+            $line = isset($start['column']) ? $start['line'] : $start['line'] + 1;
+            $contents = file($primary['span']['file_id']['name']);
+            if (preg_match('/\/\/ ' . preg_quote($marker, '/') . '\s*$/', $contents[$line - 1] ?? '') !== 1) { continue; }
+            if ($issue['code'] === 'non-existent-method') { $actual[0]++; }
+            elseif ($issue['code'] === 'alfredbez/phpunit/mock-call-on-plain-type') {
+                $actual[1]++;
+                if (!str_contains($issue['help'] ?? '', '&MockObject')) { fwrite(STDERR, "Missing constructor mock help {$marker}\n"); $failures++; }
+            } else { fwrite(STDERR, "Unexpected constructor diagnostic {$marker} {$issue['code']}\n"); $failures++; }
+        }
+        if ($actual !== $expected) { fwrite(STDERR, "FAIL constructor disabled=" . (int)$disabled . " {$marker} expected=" . json_encode($expected) . " actual=" . json_encode($actual) . "\n"); $failures++; }
+    }
     if (!$disabled) {
         $positiveMarkers = ['lazy-outer-after-shadow-write', 'lazy-outer-after-value-write', 'lazy-outer-after-arrow-write', 'lazy-outer-after-named-write', 'lazy-outer-after-uncaptured-write', 'lazy-outer-after-reference-parameter', 'lazy-property-after-class-write', 'lazy-outer-after-nested-narrowing', 'lazy-outer-after-nested-foreach', 'lazy-outer-after-nested-unset', 'narrowed-double', 'aliased-legacy', 'documented-property', 'test-legacy-property', 'documented-global', 'documented-trait', 'after-sibling-shadow', 'captured-before-mutation', 'literal-assignment', 'global-legacy', 'global-expects', 'global-pass', 'trait-legacy', 'trait-pass', 'helper-legacy', 'helper-property', 'closure-legacy', 'arrow-legacy', 'global-captured', 'legacy-method', 'legacy-expects', 'legacy-pass', 'captured-union', 'allowed-method', 'partial-protected', 'partial-unknown', 'magic-dynamic', 'test-framework-exception'];
         foreach ($issues as $issue) {

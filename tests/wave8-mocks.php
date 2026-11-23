@@ -22,6 +22,36 @@ foreach ([false, true] as $disabled) {
     $issues = json_decode($output, true, 512, JSON_THROW_ON_ERROR)['issues'] ?? null;
     if (!is_array($issues) || $exit > 1 || str_contains($error, 'extension host')) { throw new RuntimeException($error . $output); }
     foreach ([
+        'lazy-ternary-outside-arrow' => ['non-existent-method', 2],
+        'lazy-unbraced-do' => [$disabled ? 'non-existent-method' : 'alfredbez/phpunit/mock-call-on-plain-type', 1],
+        'lazy-unbraced-try' => [$disabled ? 'non-existent-method' : 'alfredbez/phpunit/mock-call-on-plain-type', 1],
+        'lazy-unbraced-echo' => [$disabled ? 'non-existent-method' : 'alfredbez/phpunit/mock-call-on-plain-type', 1],
+        'lazy-unicode-declaration' => ['non-existent-method', $disabled ? 1 : 0],
+        'lazy-guard-shadow-closure' => ['non-existent-method', $disabled ? 1 : 0],
+        'lazy-guard-shadow-arrow' => ['non-existent-method', $disabled ? 1 : 0],
+        'lazy-guard-captured-value' => ['non-existent-method', 1],
+        'lazy-guard-captured-write' => ['non-existent-method', 1],
+        'lazy-keyword-class' => ['non-existent-method', $disabled ? 1 : 0],
+        'lazy-keyword-fn' => ['non-existent-method', $disabled ? 1 : 0],
+        'lazy-keyword-function' => ['non-existent-method', $disabled ? 1 : 0],
+        'lazy-unbraced-negative' => [$disabled ? 'non-existent-method' : 'alfredbez/phpunit/mock-call-on-plain-type', 1],
+        'lazy-unbraced-else' => [$disabled ? 'non-existent-method' : 'alfredbez/phpunit/mock-call-on-plain-type', 1],
+        'lazy-function-import' => ['non-existent-method', 2],
+        'lazy-const-import' => ['non-existent-method', 2],
+        'lazy-mixed-import-negative' => ['non-existent-method', 2],
+        'lazy-mixed-import-positive' => ['non-existent-method', $disabled ? 1 : 0],
+        'lazy-grouped-closure' => ['non-existent-method', $disabled ? 1 : 0],
+        'lazy-grouped-arrow' => ['non-existent-method', $disabled ? 1 : 0],
+        'lazy-after-default-shadow' => ['non-existent-method', $disabled ? 1 : 0],
+        'lazy-after-literals' => ['non-existent-method', $disabled ? 1 : 0],
+        'lazy-interpolated-call' => ['non-existent-method', $disabled ? 1 : 0],
+        'lazy-captured-value' => ['non-existent-method', $disabled ? 1 : 0],
+        'lazy-after-mutation' => ['non-existent-method', 1],
+        'lazy-closure-scalar' => ['non-existent-method', 1],
+        'lazy-outer-reference' => ['non-existent-method', 1],
+        'lazy-mutated-capture' => ['non-existent-method', 1],
+        'lazy-branch-write' => ['non-existent-method', 1],
+        'lazy-second-namespace' => ['non-existent-method', $disabled ? 1 : 0],
         'aliased-legacy' => ['non-existent-method', $disabled ? 1 : 0],
         'narrowed-legacy' => ['non-existent-method', 1],
         'plain-narrowed-method' => [$disabled ? 'non-existent-method' : 'alfredbez/phpunit/mock-call-on-plain-type', 1],
@@ -132,6 +162,47 @@ foreach ([false, true] as $disabled) {
         }
     }
     file_put_contents($directory . '/' . ($disabled ? 'without' : 'with') . '.json', $output);
+}
+$buffer = <<<'PHP'
+<?php
+namespace Wave8Unsaved;
+use PHPUnit\Framework\MockObject\MockObject;
+interface Service { public function run(): string; }
+/** @throws \PHPUnit\Exception */
+function unsaved(TYPE $legacy): void
+{
+    // Grüße precede the byte offsets used by native annotations.
+    $legacy->method('run');
+}
+PHP;
+$path = $directory . '/Unsaved.php';
+foreach ([true, false] as $legacy) {
+    $input = str_replace('TYPE', $legacy ? 'Service|MockObject' : 'Service', $buffer);
+    $disk = str_replace('TYPE', $legacy ? 'Service' : 'Service|MockObject', $buffer);
+    file_put_contents($path, $disk);
+    foreach ([false, true] as $disabled) {
+        $cmd = [PHP_BINARY, $root . '/vendor/bin/mago', '--workspace', $directory, 'analyze', '--stdin-input', $path, '--reporting-format=json'];
+        if ($disabled) { $cmd[] = '--no-extensions'; }
+        $process = proc_open($cmd, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        fwrite($pipes[0], $input); fclose($pipes[0]);
+        $output = stream_get_contents($pipes[1]); $error = stream_get_contents($pipes[2]);
+        fclose($pipes[1]); fclose($pipes[2]);
+        $exit = proc_close($process);
+        if ($exit > 1 || str_contains($error, 'extension host')) { throw new RuntimeException($error . $output); }
+        $issues = json_decode($output, true, 512, JSON_THROW_ON_ERROR)['issues'];
+        $native = array_values(array_filter($issues, static fn(array $issue): bool => $issue['code'] === 'non-existent-method'));
+        $expected = $disabled || !$legacy ? 1 : 0;
+        if (count($native) !== $expected || file_get_contents($path) !== $disk) {
+            fwrite(STDERR, 'FAIL unsaved mock source legacy=' . (int)$legacy . ' disabled=' . (int)$disabled . "\n"); $failures++;
+        }
+        foreach ($native as $issue) {
+            foreach ($issue['annotations'] as $annotation) {
+                if ($annotation['kind'] === 'Primary' && $annotation['span']['start']['offset'] !== strpos($input, 'method')) {
+                    fwrite(STDERR, "FAIL unsaved mock source byte offset\n"); $failures++;
+                }
+            }
+        }
+    }
 }
 echo "Wave 8 mock contracts {$version}: {$failures} failures ({$directory})\n";
 exit($failures === 0 ? 0 : 1);

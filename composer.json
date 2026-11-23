@@ -17,6 +17,7 @@
     },
     "require": {
         "php": "~8.1.0 || ~8.2.0 || ~8.3.0 || ~8.4.0 || ~8.5.0 || ~8.6.0",
+        "ext-tokenizer": "*",
         "carthage-software/mago": "^1.60.2"
     },
     "require-dev": {

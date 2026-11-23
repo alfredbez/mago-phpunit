@@ -54,7 +54,7 @@ final class LegacyMockIssueFilter implements IssueFilterHook
         if ($primary === null || $receiver === null) {
             return IssueFilterDecision::Keep;
         }
-        $declaration = $this->sourceIndex->find($context->file, $primary);
+        $declaration = $this->sourceIndex->find($context->file, $context->contents, $primary, $receiver);
         if ($declaration === null) {
             return IssueFilterDecision::Keep;
         }

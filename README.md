@@ -25,7 +25,7 @@ $mailer->method('sendInvioce');
 
 ## Setup
 
-Requires PHP 8.1 to 8.6, Mago `^1.60.2`, and your own PHPUnit `^10.5`, `^11.5`, `^12.0`, or `^13.0` installation.
+Requires PHP 8.1 to 8.6 with the tokenizer extension, Mago `^1.60.2`, and your own PHPUnit `^10.5`, `^11.5`, `^12.0`, or `^13.0` installation.
 
 ```shell
 composer require --dev alfredbez/mago-phpunit

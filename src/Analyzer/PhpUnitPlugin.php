@@ -44,7 +44,6 @@ final class PhpUnitPlugin implements Plugin
         $dataProviders = $this->dataProviders;
         $legacyMocks = new LegacyMockCalls();
         $legacySource = new \AlfredBez\MagoPhpunit\Analyzer\Providers\LegacyMockSourceIndex();
-        $registry->registerCodebaseScanHook($legacySource);
         $prophecy = new \AlfredBez\MagoPhpunit\Analyzer\Providers\ProphecySupport();
         $registry->registerMethodReturnTypeProvider(new \AlfredBez\MagoPhpunit\Analyzer\Providers\ProphecyReturnTypeProvider());
         $registry->registerMethodCallAnalysisHook($prophecy);

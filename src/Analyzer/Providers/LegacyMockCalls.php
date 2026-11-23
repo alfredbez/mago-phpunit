@@ -27,7 +27,7 @@ final class LegacyMockCalls implements NodeAnalysisHook
 
     public function getRequirements(): array
     {
-        return [FileAnalysisRequirement::ReceiverType, FileAnalysisRequirement::SourceText, FileAnalysisRequirement::TargetSubtree];
+        return [FileAnalysisRequirement::SourceText, FileAnalysisRequirement::TargetSubtree];
     }
 
     public function analyze(NodeAnalysisContext $context): void
@@ -37,10 +37,10 @@ final class LegacyMockCalls implements NodeAnalysisHook
         if ($called !== 'method' && $called !== 'expects') {
             return;
         }
-        if (self::isLegacyUnion($context->receiverType)) {
+        $type = $call->receiver === null ? null : $context->analysis->getExpressionType($call->receiver);
+        if (self::isLegacyUnion($type)) {
             return;
         }
-        $type = $context->receiverType;
         if ($type === null || count($type->atomicTypes) !== 1 || !$type->atomicTypes[0] instanceof NamedObjectType) {
             return;
         }

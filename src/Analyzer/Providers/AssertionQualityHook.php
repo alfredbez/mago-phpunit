@@ -54,7 +54,9 @@ final class AssertionQualityHook implements MethodCallAnalysisHook, NodeAnalysis
 
     public function getRequirements(): array
     {
-        return [FileAnalysisRequirement::SourceText, FileAnalysisRequirement::TargetSubtree, FileAnalysisRequirement::ArgumentTypes, FileAnalysisRequirement::ExpressionTypes];
+        return $this->functions
+            ? [FileAnalysisRequirement::SourceText, FileAnalysisRequirement::TargetSubtree]
+            : [FileAnalysisRequirement::SourceText, FileAnalysisRequirement::TargetSubtree, FileAnalysisRequirement::ArgumentTypes, FileAnalysisRequirement::ExpressionTypes];
     }
 
     public function analyze(NodeAnalysisContext $context): void
@@ -70,13 +72,19 @@ final class AssertionQualityHook implements MethodCallAnalysisHook, NodeAnalysis
             $name = strtolower($resolved);
         }
         $name = substr($name, (int) strrpos('\\' . $name, '\\'));
+        if (!in_array($name, array_map(strtolower(...), self::METHODS), true)) {
+            return;
+        }
+        $argumentTypes = $this->functions
+            ? $context->analysis->getMultipleExpressionTypes(array_map(static fn($argument) => $argument->value, $call->arguments))
+            : $context->argumentTypes;
         $arguments = [];
         foreach ($call->arguments as $argument) {
             if ($argument->unpacked) {
                 return;
             }
             $arguments[$argument->name ?? $argument->index] = [
-                $context->argumentTypes[$argument->index] ?? null,
+                $argumentTypes[$argument->index] ?? null,
                 $argument->value,
             ];
         }
@@ -174,10 +182,6 @@ final class AssertionQualityHook implements MethodCallAnalysisHook, NodeAnalysis
     private function hasMutableFact(NodeAnalysisContext $context, Node $actual, Type $type): bool
     {
         $source = $context->source;
-        $scope = $this->scope($source, $context->node);
-        if ($scope === null) {
-            return false;
-        }
         $identity = preg_replace('/\s+/', '', $source->getText($actual));
         $property = $source->getDescendants($actual, NodeKind::PropertyAccess) !== []
             || $source->getDescendants($actual, NodeKind::StaticPropertyAccess) !== []
@@ -187,6 +191,18 @@ final class AssertionQualityHook implements MethodCallAnalysisHook, NodeAnalysis
             $resource = $resource || $atomic instanceof ResourceType;
         }
         if (!$property && !$resource && preg_match('/^\$[a-zA-Z_][a-zA-Z0-9_]*$/D', $identity) !== 1) {
+            return false;
+        }
+        $source = $context->analysis->getSourceFile();
+        // Targeted snapshots renumber nodes and omit their enclosing statements.
+        $scope = null;
+        foreach ($source->getNodes($context->node->kind) as $node) {
+            if ($node->span->start === $context->node->span->start && $node->span->end === $context->node->span->end) {
+                $scope = $this->scope($source, $node);
+                break;
+            }
+        }
+        if ($scope === null) {
             return false;
         }
         $facts = $this->scopes[$source] ?? [];

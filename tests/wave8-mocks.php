@@ -152,10 +152,20 @@ foreach ([false, true] as $disabled) {
         if ($actual !== $expected) { fwrite(STDERR, "FAIL disabled=" . (int)$disabled . " {$marker} {$code} expected {$expected} got {$actual}\n"); $failures++; }
     }
     $constructorExpected = [];
-    foreach (['direct-method', 'direct-expects', 'wrapped', 'arguments', 'namespace-relative', 'assigned-method', 'assigned-expects'] as $case) {
+    foreach ([
+        'direct-method', 'direct-expects', 'wrapped', 'arguments', 'namespace-relative',
+        'assigned-method', 'assigned-expects', 'reference-binding', 'intervening-statement',
+        'dynamic-class', 'conditional-expression', 'factory-this-direct', 'factory-this-assigned',
+        'factory-static', 'factory-function', 'var-single-class',
+    ] as $case) {
         $constructorExpected['constructor-' . $case] = [$disabled ? 1 : 0, $disabled ? 0 : 1];
     }
-    foreach (['real-union', 'conditional-assignment', 'branch-mutation', 'annotated-union', 'application-direct', 'application-assigned', 'global-direct'] as $case) {
+    foreach ([
+        'real-union', 'conditional-assignment', 'branch-mutation', 'annotated-union',
+        'heterogeneous-ternary', 'factory-union', 'factory-assigned-union',
+        'stale-var-reassigned-union', 'dynamic-union-class',
+        'application-direct', 'application-assigned', 'application-factory', 'global-direct',
+    ] as $case) {
         $constructorExpected['constructor-' . $case] = [1, 0];
     }
     foreach (['defined-method', 'defined-expects'] as $case) {

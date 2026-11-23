@@ -4,9 +4,14 @@ declare(strict_types=1);
 
 namespace AlfredBez\MagoPhpunit\Analyzer\Providers;
 
+use Mago\Sdk\Analyzer\Codebase;
 use Mago\Sdk\Analyzer\Type;
+use Mago\Sdk\Analyzer\Type\ClassLikeStringType;
+use Mago\Sdk\Analyzer\Type\ClassLikeStringVariant;
 use Mago\Sdk\Analyzer\Type\FunctionLikeIdentifier;
 use Mago\Sdk\Analyzer\Type\FunctionLikeKind;
+use Mago\Sdk\Analyzer\Type\NamedObjectType;
+use Mago\Sdk\Analyzer\Type\ScalarType;
 use Mago\Sdk\Span;
 use PhpToken;
 
@@ -15,7 +20,7 @@ final class LegacyMockSourceIndex
     private string $key = '';
     /** @var list<PhpToken> */
     private array $tokens = [];
-    /** @var list<int> */
+    /** @var list<array{pos: int, text: string}> */
     private array $annotations = [];
     /** @var array<int, int> */
     private array $pairs = [];
@@ -27,7 +32,7 @@ final class LegacyMockSourceIndex
     private array $imports = [];
 
     /** @return null|array{class: ?string, function: ?FunctionLikeIdentifier, variable: ?string, property: ?string, type: ?Type, withoutMock: bool} */
-    public function find(string $file, string $contents, Span $method, Span $receiverSpan): ?array
+    public function find(string $file, string $contents, Span $method, Span $receiverSpan, ?Codebase $codebase = null): ?array
     {
         $key = $file . ':' . hash('xxh128', $contents);
         if ($this->key !== $key) {
@@ -40,7 +45,7 @@ final class LegacyMockSourceIndex
         }
         $class = $this->enclosing($at, ['class']);
         $owner = $class === null ? null : $class['name'];
-        $constructed = $owner === null ? null : $this->constructedReceiver($at, $receiverSpan);
+        $constructed = $owner === null ? null : $this->constructedReceiver($at, $receiverSpan, $owner, $codebase);
         if ($constructed !== null) {
             return ['class' => $owner, 'function' => null, 'variable' => null, 'property' => null, 'type' => $constructed, 'withoutMock' => false];
         }
@@ -103,7 +108,7 @@ final class LegacyMockSourceIndex
         $this->annotations = [];
         foreach ($tokens as $token) {
             if ($token->id === T_DOC_COMMENT || $token->id === T_COMMENT && str_contains($token->text, '@')) {
-                $this->annotations[] = $token->pos;
+                $this->annotations[] = ['pos' => $token->pos, 'text' => $token->text];
             }
         }
         $this->tokens = array_values(array_filter($tokens, static fn(PhpToken $token): bool => !$token->isIgnorable() && !in_array($token->id, [T_CONSTANT_ENCAPSED_STRING, T_ENCAPSED_AND_WHITESPACE, T_INLINE_HTML], true)));
@@ -198,54 +203,299 @@ final class LegacyMockSourceIndex
         }
     }
 
-    private function constructedReceiver(int $at, Span $receiver): ?Type
+    private function constructedReceiver(int $at, Span $receiver, string $owner, ?Codebase $codebase): ?Type
     {
         $scope = $this->enclosing($at, ['method', 'function', 'closure', 'arrow']);
         $start = $this->tokenAt($receiver->start);
         if ($scope === null || $start === null) {
             return null;
         }
-        foreach ($this->annotations as $offset) {
-            if ($this->tokens[$scope['body']]->pos <= $offset && $offset < $this->tokens[$at]->pos) {
-                return null;
-            }
-        }
         $end = $start;
         while (isset($this->tokens[$end]) && $this->tokens[$end]->pos < $receiver->end) {
             $end++;
         }
-        $type = $this->namedConstructor($start, $end);
-        if ($type !== null) {
-            return $type;
+        $direct = $this->resolvePlainExpression($start, $end, $scope, $owner, $codebase);
+        if ($direct !== null) {
+            return $this->annotationState($scope['body'], $at, null)['blocked'] ? null : $direct;
         }
-        if ($end !== $start + 1 || $this->tokens[$start]->id !== T_VARIABLE
-            || $at !== $start + 2 || ($this->tokens[$start - 1]->text ?? '') !== ';'
-            || $this->tokens[$scope['body']]->text !== '{') {
+        if ($end !== $start + 1 || $this->tokens[$start]->id !== T_VARIABLE || $this->tokens[$scope['body']]->text !== '{') {
             return null;
         }
+        $variable = $this->tokens[$start]->text;
+        $annotations = $this->annotationState($scope['body'], $at, $variable);
+        if ($annotations['blocked']) {
+            return null;
+        }
+        $blockOpen = $scope['body'];
         foreach ($this->pairs as $open => $close) {
-            if ($scope['body'] < $open && $open < $start && $start < $close && $this->tokens[$open]->text !== '{') {
+            if ($open > $blockOpen && $open < $start && $start < $close && $this->tokens[$open]->text === '{') {
+                $blockOpen = $open;
+            }
+        }
+        $blockClose = $this->pairs[$blockOpen] ?? null;
+        if ($blockClose === null) {
+            return null;
+        }
+        $aliasedEarlier = $this->hasReferenceAlias($scope['start'], $start, $variable);
+        $latest = null;
+        $cursor = $blockOpen + 1;
+        while ($cursor < $blockClose) {
+            $stmtEnd = $this->statementEnd($cursor);
+            if ($stmtEnd === null || $stmtEnd <= $cursor) {
                 return null;
             }
-        }
-        $assignment = $start - 2;
-        while ($assignment > $scope['body']) {
-            if (isset($this->pairs[$assignment]) && $this->pairs[$assignment] < $assignment) {
-                $assignment = $this->pairs[$assignment] - 1;
-                continue;
-            }
-            if (in_array($this->tokens[$assignment]->text, [';', '{', '}'], true)) {
+            if ($cursor <= $start && $start < $stmtEnd) {
+                if ($this->isControlOrLabel($cursor) || $this->mentions($cursor, $start, $variable)) {
+                    return null;
+                }
                 break;
             }
-            $assignment--;
+            if ($this->tokens[$cursor]->text === $variable && ($this->tokens[$cursor + 1]->text ?? '') === '='
+                && ($this->tokens[$cursor + 2]->text ?? '') !== '&' && $this->tokens[$stmtEnd - 1]->text === ';') {
+                $latest = [$cursor, $cursor + 2, $stmtEnd - 1];
+            } elseif ($aliasedEarlier || $this->isControlOrLabel($cursor) && ($this->tokens[$cursor]->id === T_GOTO || ($this->tokens[$cursor + 1]->text ?? '') === ':' || $this->mentions($cursor, $stmtEnd, $variable))
+                || $this->mentions($cursor, $stmtEnd, $variable)) {
+                $latest = null;
+            }
+            $cursor = $stmtEnd;
         }
-        $assignment++;
-        $variable = $this->tokens[$start]->text;
-        if (($this->tokens[$assignment]->text ?? '') !== $variable || ($this->tokens[$assignment + 1]->text ?? '') !== '='
-            || $this->mentions($scope['start'], $assignment, $variable)) {
+        if ($latest === null) {
             return null;
         }
-        return $this->namedConstructor($assignment + 2, $start - 1);
+        $rhs = $this->resolvePlainExpression($latest[1], $latest[2], $scope, $owner, $codebase);
+        if ($rhs !== null) {
+            if ($annotations['type'] !== null && strcasecmp($this->singleNamedObject($annotations['type']) ?? '', $this->singleNamedObject($rhs) ?? '') !== 0) {
+                return null;
+            }
+            return $rhs;
+        }
+        $prevPos = $this->tokens[max($blockOpen, $latest[0] - 1)]->pos;
+        return $annotations['type'] !== null && $annotations['pos'] !== null && $annotations['pos'] >= $prevPos
+            ? $annotations['type']
+            : null;
+    }
+
+    /** @param array{kind: string, start: int, end: int, body: int, parameters: ?int, name: ?string} $scope */
+    private function resolvePlainExpression(int $start, int $end, array $scope, string $owner, ?Codebase $codebase): ?Type
+    {
+        while (($this->tokens[$start]->text ?? '') === '(' && ($this->pairs[$start] ?? null) === $end - 1) {
+            $start++;
+            $end--;
+        }
+        if ($start >= $end) {
+            return null;
+        }
+        if (($type = $this->namedConstructor($start, $end)) !== null) {
+            return $type;
+        }
+        if (($type = $this->dynamicConstructor($start, $end, $scope, $owner, $codebase)) !== null) {
+            return $type;
+        }
+        if (($type = $this->conditionalExpression($start, $end, $scope, $owner, $codebase)) !== null) {
+            return $type;
+        }
+        return $this->factoryCall($start, $end, $owner, $codebase);
+    }
+
+    /** @param array{kind: string, start: int, end: int, body: int, parameters: ?int, name: ?string} $scope */
+    private function dynamicConstructor(int $start, int $end, array $scope, string $owner, ?Codebase $codebase): ?Type
+    {
+        if ($codebase === null || ($this->tokens[$start]->id ?? null) !== T_NEW || ($this->tokens[$start + 1]->id ?? null) !== T_VARIABLE) {
+            return null;
+        }
+        $arguments = $start + 2;
+        if ($arguments !== $end && (($this->tokens[$arguments]->text ?? '') !== '(' || ($this->pairs[$arguments] ?? null) !== $end - 1)) {
+            return null;
+        }
+        $classVar = $this->tokens[$start + 1]->text;
+        if ($this->hasWrite($scope['body'] + 1, $start, $classVar, null)) {
+            return null;
+        }
+        $function = match ($scope['kind']) {
+            'method' => $scope['name'] === null ? null : new FunctionLikeIdentifier(FunctionLikeKind::Method, $scope['name'], $owner),
+            'function' => $scope['name'] === null ? null : new FunctionLikeIdentifier(FunctionLikeKind::Function_, $scope['name']),
+            default => null,
+        };
+        if ($function === null) {
+            return null;
+        }
+        $paramType = null;
+        foreach ($codebase->getFunctionLike($function)?->parameters ?? [] as $parameter) {
+            if (ltrim($parameter->name, '$') === substr($classVar, 1)) {
+                $paramType = $parameter->type?->type;
+                break;
+            }
+        }
+        if ($paramType === null || count($paramType->atomicTypes) !== 1 || !$paramType->atomicTypes[0] instanceof ScalarType
+            || !$paramType->atomicTypes[0]->refinement instanceof ClassLikeStringType) {
+            return null;
+        }
+        $refinement = $paramType->atomicTypes[0]->refinement;
+        if ($refinement->variant === ClassLikeStringVariant::OfType && $refinement->constraint instanceof NamedObjectType
+            && ($refinement->constraint->intersections === null || $refinement->constraint->intersections === [])) {
+            return Type::namedObject($refinement->constraint->name);
+        }
+        if ($refinement->variant === ClassLikeStringVariant::Literal && $refinement->literal !== null) {
+            return Type::namedObject($refinement->literal);
+        }
+        return null;
+    }
+
+    /** @param array{kind: string, start: int, end: int, body: int, parameters: ?int, name: ?string} $scope */
+    private function conditionalExpression(int $start, int $end, array $scope, string $owner, ?Codebase $codebase): ?Type
+    {
+        $question = null;
+        $colon = null;
+        $depth = 0;
+        for ($i = $start; $i < $end; $i++) {
+            if (isset($this->pairs[$i]) && $this->pairs[$i] > $i) {
+                $i = $this->pairs[$i];
+                continue;
+            }
+            if ($this->tokens[$i]->text === '?') {
+                if ($question === null) {
+                    $question = $i;
+                } else {
+                    $depth++;
+                }
+            } elseif ($this->tokens[$i]->text === ':' && $question !== null) {
+                if ($depth === 0) {
+                    $colon = $i;
+                    break;
+                }
+                $depth--;
+            }
+        }
+        if ($question === null || $colon === null || $colon === $question + 1) {
+            return null;
+        }
+        $left = $this->resolvePlainExpression($question + 1, $colon, $scope, $owner, $codebase);
+        $right = $this->resolvePlainExpression($colon + 1, $end, $scope, $owner, $codebase);
+        $leftName = $this->singleNamedObject($left);
+        $rightName = $this->singleNamedObject($right);
+        return $leftName !== null && $rightName !== null && strcasecmp($leftName, $rightName) === 0 ? $left : null;
+    }
+
+    private function factoryCall(int $start, int $end, string $owner, ?Codebase $codebase): ?Type
+    {
+        if ($codebase === null || $end - $start < 3 || ($this->tokens[$end - 1]->text ?? '') !== ')') {
+            return null;
+        }
+        $open = $this->pairs[$end - 1] ?? null;
+        if ($open === null || $open <= $start) {
+            return null;
+        }
+        $returnType = null;
+        if ($open === $start + 3 && $this->tokens[$start]->text === '$this' && $this->tokens[$start + 1]->text === '->'
+            && $this->tokens[$start + 2]->id === T_STRING) {
+            $returnType = $codebase->getMethod($owner, $this->tokens[$start + 2]->text)?->returnType?->type;
+        } elseif ($open === $start + 3 && $this->tokens[$start + 1]->text === '::' && $this->tokens[$start + 2]->id === T_STRING) {
+            $classText = $this->tokens[$start]->text;
+            $lower = strtolower($classText);
+            $targetClass = match (true) {
+                $lower === 'self' => $owner,
+                $lower === 'static' => ($codebase->getClassLike($owner)?->final ?? false) ? $owner : null,
+                $lower === 'parent' => null,
+                $this->isName($classText) => $this->resolve($classText, $start),
+                default => null,
+            };
+            if ($targetClass !== null) {
+                $returnType = $codebase->getMethod($targetClass, $this->tokens[$start + 2]->text)?->returnType?->type;
+            }
+        } elseif ($open === $start + 1 && in_array($this->tokens[$start]->id, [T_STRING, T_NAME_QUALIFIED, T_NAME_FULLY_QUALIFIED, T_NAME_RELATIVE], true)
+            && $this->isName($this->tokens[$start]->text)) {
+            $name = $this->tokens[$start]->text;
+            $resolved = $this->resolve($name, $start);
+            $fn = $codebase->getFunction($resolved);
+            if ($fn === null && !str_contains($name, '\\')) {
+                $fn = $codebase->getFunction($name);
+            }
+            $returnType = $fn?->returnType?->type;
+        }
+        $name = $this->singleNamedObject($returnType);
+        return $name === null ? null : Type::namedObject($name);
+    }
+
+    /** @return array{blocked: bool, type: ?Type, pos: ?int} */
+    private function annotationState(int $body, int $before, ?string $variable): array
+    {
+        $bodyPos = $this->tokens[$body]->pos;
+        $beforePos = $this->tokens[$before]->pos;
+        $resolved = null;
+        $resolvedPos = null;
+        foreach ($this->annotations as $annotation) {
+            if ($annotation['pos'] < $bodyPos || $annotation['pos'] >= $beforePos) {
+                continue;
+            }
+            if ($variable === null) {
+                if (preg_match('/@(?:var|phpstan-|psalm-)/i', $annotation['text']) === 1) {
+                    return ['blocked' => true, 'type' => null, 'pos' => null];
+                }
+                continue;
+            }
+            if (preg_match('/@(?:phpstan-|psalm-)/i', $annotation['text']) === 1) {
+                return ['blocked' => true, 'type' => null, 'pos' => null];
+            }
+            if (preg_match_all('/@var\s+([^\s\*]+)(?:\s+(\$[A-Za-z_\x80-\xff][A-Za-z0-9_\x80-\xff]*))?/i', $annotation['text'], $matches, PREG_SET_ORDER)) {
+                foreach ($matches as $match) {
+                    $target = $match[2] ?? '';
+                    if ($target !== '' && $target !== $variable) {
+                        continue;
+                    }
+                    if ($target === '') {
+                        return ['blocked' => true, 'type' => null, 'pos' => null];
+                    }
+                    $typeText = trim($match[1]);
+                    if (!$this->isName($typeText) || in_array(strtolower($typeText), ['int', 'float', 'string', 'bool', 'mixed', 'object', 'array', 'iterable', 'callable', 'null', 'false', 'true', 'self', 'parent', 'static', 'void', 'never', 'resource'], true)) {
+                        return ['blocked' => true, 'type' => null, 'pos' => null];
+                    }
+                    $candidate = $this->resolve($typeText, $before);
+                    if ($resolved !== null && strcasecmp($resolved, $candidate) !== 0) {
+                        return ['blocked' => true, 'type' => null, 'pos' => null];
+                    }
+                    $resolved = $candidate;
+                    $resolvedPos = $annotation['pos'];
+                }
+            }
+        }
+        return ['blocked' => false, 'type' => $resolved === null ? null : Type::namedObject($resolved), 'pos' => $resolvedPos];
+    }
+
+    private function isControlOrLabel(int $at): bool
+    {
+        return in_array($this->tokens[$at]->id, [T_IF, T_ELSEIF, T_ELSE, T_FOR, T_FOREACH, T_WHILE, T_DO, T_SWITCH, T_TRY, T_CATCH, T_FINALLY, T_DECLARE, T_GOTO], true)
+            || ($this->tokens[$at]->id === T_STRING && ($this->tokens[$at + 1]->text ?? '') === ':');
+    }
+
+    private function hasReferenceAlias(int $start, int $before, string $variable): bool
+    {
+        for ($at = $start; $at < $before; $at++) {
+            if ($this->tokens[$at]->text === '&' && ($this->tokens[$at + 1]->text ?? '') === $variable) {
+                return true;
+            }
+            if ($this->tokens[$at]->text === $variable && ($this->tokens[$at + 1]->text ?? '') === '=' && ($this->tokens[$at + 2]->text ?? '') === '&') {
+                return true;
+            }
+            if ($this->tokens[$at]->id === T_GLOBAL) {
+                $end = $at + 1;
+                while ($end < $before && $this->tokens[$end]->text !== ';') {
+                    $end++;
+                }
+                if ($this->mentions($at + 1, $end, $variable)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private function singleNamedObject(?Type $type): ?string
+    {
+        if ($type === null || count($type->atomicTypes) !== 1 || !$type->atomicTypes[0] instanceof NamedObjectType) {
+            return null;
+        }
+        $atomic = $type->atomicTypes[0];
+        return $atomic->intersections === null || $atomic->intersections === [] ? $atomic->name : null;
     }
 
     private function namedConstructor(int $start, int $end): ?Type

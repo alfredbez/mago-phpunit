@@ -702,7 +702,7 @@
       "semantics": "Typed intersections and legacy target|MockObject unions carry the mock API; unrelated unions and application exceptions remain errors. Final/private/lifecycle methods cannot be configured.",
       "analyzer_expectation": "One actionable plain-type diagnostic; reject non-configurable methods; preserve unrelated argument and thrown-type diagnostics.",
       "negative_control": "Real method names pass; unrelated union members and application exceptions remain errors; framework exceptions outside test classes remain errors.",
-      "versions": "Mago 1.60.2 and 1.61.0; PHPUnit 10.5, 11.5, 12.x, 13.x. Arbitrary inferred plain receivers can still produce duplicate native and extension reports on these SDKs; the once-only contract remains open.",
+      "versions": "Mago 1.60.2 and 1.61.0; PHPUnit 10.5, 11.5, 12.x, 13.x. Parameters, properties, narrowed unions, named/class-string/conditional constructors, typed factory calls, and single-class @var locals report once; expressions whose plain type comes only from an external return-type provider can still produce both native and extension reports because Mago 1.60.2 and 1.61.0 run IssueFilterHook before exposing full inferred expression types.",
       "status": "partial",
       "priority": "P1",
       "sources": [

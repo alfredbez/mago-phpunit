@@ -493,12 +493,24 @@ final class LegacyMockSourceIndex
     private function hasWrite(int $start, int $before, string $receiver, ?array $excluded): bool
     {
         $parameters = [];
+        $independent = [];
         foreach ($this->scopes as $scope) {
             if ($scope['parameters'] !== null) {
                 $parameters[$scope['parameters']] = $this->pairs[$scope['parameters']];
+                if (!str_starts_with($receiver, '$this->') && $start <= $scope['start'] && $scope['end'] < $before
+                    && $this->hasIndependentBinding($scope, $receiver)) {
+                    $independent[$scope['start']] = $scope['end'];
+                }
+            } elseif ($scope['kind'] === 'class' && str_starts_with($receiver, '$this->')
+                && $start <= $scope['body'] && $scope['end'] < $before) {
+                $independent[$scope['body']] = $scope['end'];
             }
         }
         for ($at = $start; $at < $before; $at++) {
+            if (isset($independent[$at])) {
+                $at = $independent[$at] - 1;
+                continue;
+            }
             if (isset($parameters[$at])) {
                 $at = $parameters[$at];
                 continue;
@@ -562,6 +574,30 @@ final class LegacyMockSourceIndex
             }
         }
         return false;
+    }
+
+    /** @param array{parameters: int, end: int, body: int} $scope */
+    private function hasIndependentBinding(array $scope, string $receiver): bool
+    {
+        for ($at = $this->pairs[$scope['parameters']] + 1; $at < $scope['body']; $at++) {
+            if ($this->tokens[$at]->text === '&' && ($this->tokens[$at + 1]->text ?? '') === $receiver) {
+                return false;
+            }
+        }
+        for ($at = $scope['body'] + 1; $at < $scope['end']; $at++) {
+            if ($this->tokens[$at]->id !== T_GLOBAL) {
+                continue;
+            }
+            $end = $at + 1;
+            while ($end < $scope['end'] && $this->tokens[$end]->text !== ';') {
+                $end++;
+            }
+            if ($this->mentions($at + 1, $end, $receiver)) {
+                return false;
+            }
+            $at = $end;
+        }
+        return true;
     }
 
     private function mentions(int $start, int $end, string $receiver): bool

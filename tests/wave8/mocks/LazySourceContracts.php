@@ -97,6 +97,138 @@ TEXT;
         }
     }
 
+    function outerAfterShadow(Target|Double $legacy, Target $replacement): void
+    {
+        $closure = static function (Target|Double $legacy, Target $replacement): void {
+            $legacy = $replacement;
+            $legacy->method('run'); // lazy-shadow-local-write
+        };
+        $legacy->method('run'); // lazy-outer-after-shadow-write
+    }
+
+    function outerAfterValueCapture(Target|Double $legacy, Target $replacement): void
+    {
+        $closure = static function () use ($legacy, $replacement): void {
+            $legacy = $replacement;
+            $legacy->method('run'); // lazy-value-local-write
+        };
+        $legacy->method('run'); // lazy-outer-after-value-write
+    }
+
+    function outerAfterArrow(Target|Double $legacy, Target $replacement): void
+    {
+        $arrow = fn () => [$legacy = $replacement, $legacy->method('run')]; // lazy-arrow-local-write
+        $legacy->method('run'); // lazy-outer-after-arrow-write
+    }
+
+    function outerAfterNamed(Target|Double $legacy, Target $replacement): void
+    {
+        function localBinding(Target|Double $legacy, Target $replacement): void
+        {
+            $legacy = $replacement;
+            $legacy->method('run'); // lazy-named-local-write
+        }
+        $legacy->method('run'); // lazy-outer-after-named-write
+    }
+
+    function outerAfterUncaptured(Target|Double $legacy, Target $replacement): void
+    {
+        $closure = static function () use ($replacement): void {
+            $legacy = $replacement;
+        };
+        $legacy->method('run'); // lazy-outer-after-uncaptured-write
+    }
+
+    function outerAfterNestedNarrowing(Target|Double $legacy): void
+    {
+        $closure = static function (Target|Double $legacy): void {
+            if ($legacy instanceof Double) {}
+        };
+        $legacy->method('run'); // lazy-outer-after-nested-narrowing
+    }
+
+    function outerAfterNestedForeach(Target|Double $legacy, Target $replacement): void
+    {
+        $closure = static function (Target|Double $legacy, Target $replacement): void {
+            foreach ([$replacement] as $legacy) {
+                $legacy->method('run'); // lazy-foreach-local-write
+            }
+        };
+        $legacy->method('run'); // lazy-outer-after-nested-foreach
+    }
+
+    function outerAfterNestedUnset(Target|Double $legacy): void
+    {
+        $closure = static function (Target|Double $legacy): void {
+            unset($legacy);
+        };
+        $legacy->method('run'); // lazy-outer-after-nested-unset
+    }
+
+    function outerAfterReferenceCapture(Target|Double $legacy, Target $replacement): void
+    {
+        $closure = static function () use (&$legacy, $replacement): void {
+            $legacy = $replacement;
+        };
+        $legacy->method('run'); // lazy-outer-after-reference-write
+    }
+
+    function outerAfterGlobal(Target|Double $legacy, Target $replacement): void
+    {
+        $closure = static function () use ($replacement): void {
+            global $legacy;
+            $legacy = $replacement;
+        };
+        $legacy->method('run'); // lazy-outer-after-global-write
+    }
+
+    function outerAfterReferenceParameter(Target|Double $legacy, Target $replacement): void
+    {
+        $closure = static function (Target|Double &$legacy, Target $replacement): void {
+            $legacy = $replacement;
+        };
+        $legacy->method('run'); // lazy-outer-after-reference-parameter
+    }
+
+    function outerAfterReassignment(Target|Double $legacy, Target $replacement): void
+    {
+        $closure = static function (Target|Double $legacy): void {};
+        $legacy = $replacement;
+        $legacy->method('run'); // lazy-outer-after-real-write
+    }
+
+    final class SharedProperty
+    {
+        public function __construct(private Target|Double $legacy) {}
+
+        public function nestedClass(Target $replacement): void
+        {
+            $object = new class ($replacement) {
+                public function __construct(private Target $legacy)
+                {
+                    $this->legacy = $legacy;
+                }
+            };
+            $this->legacy->method('run'); // lazy-property-after-class-write
+        }
+
+        public function constructorArgument(Target $replacement): void
+        {
+            $object = new class ($this->legacy = $replacement) {
+                public function __construct(Target $legacy) {}
+            };
+            $this->legacy->method('run'); // lazy-property-after-constructor-write
+        }
+
+        public function nestedWrite(Target $replacement): void
+        {
+            $closure = function () use ($replacement): void {
+                $this->legacy = $replacement;
+            };
+            $this->legacy->method('run'); // lazy-property-after-nested-write
+        }
+    }
+
     function closureReference(Target|Double $legacy, Target $replacement): void
     {
         $alias =& $legacy;

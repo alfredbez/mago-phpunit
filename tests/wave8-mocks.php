@@ -22,6 +22,26 @@ foreach ([false, true] as $disabled) {
     $issues = json_decode($output, true, 512, JSON_THROW_ON_ERROR)['issues'] ?? null;
     if (!is_array($issues) || $exit > 1 || str_contains($error, 'extension host')) { throw new RuntimeException($error . $output); }
     foreach ([
+        'lazy-outer-after-shadow-write' => ['non-existent-method', $disabled ? 1 : 0],
+        'lazy-outer-after-value-write' => ['non-existent-method', $disabled ? 1 : 0],
+        'lazy-outer-after-arrow-write' => ['non-existent-method', $disabled ? 1 : 0],
+        'lazy-outer-after-named-write' => ['non-existent-method', $disabled ? 1 : 0],
+        'lazy-outer-after-uncaptured-write' => ['non-existent-method', $disabled ? 1 : 0],
+        'lazy-shadow-local-write' => ['non-existent-method', 1],
+        'lazy-value-local-write' => ['non-existent-method', 1],
+        'lazy-arrow-local-write' => ['non-existent-method', 1],
+        'lazy-named-local-write' => ['non-existent-method', 1],
+        'lazy-outer-after-reference-write' => ['non-existent-method', 1],
+        'lazy-outer-after-global-write' => ['non-existent-method', 1],
+        'lazy-outer-after-reference-parameter' => ['non-existent-method', $disabled ? 1 : 0],
+        'lazy-outer-after-real-write' => ['non-existent-method', 1],
+        'lazy-property-after-nested-write' => ['non-existent-method', 1],
+        'lazy-property-after-class-write' => ['non-existent-method', $disabled ? 1 : 0],
+        'lazy-property-after-constructor-write' => ['non-existent-method', 1],
+        'lazy-outer-after-nested-narrowing' => ['non-existent-method', $disabled ? 1 : 0],
+        'lazy-outer-after-nested-foreach' => ['non-existent-method', $disabled ? 1 : 0],
+        'lazy-outer-after-nested-unset' => ['non-existent-method', $disabled ? 1 : 0],
+        'lazy-foreach-local-write' => ['non-existent-method', 1],
         'lazy-ternary-outside-arrow' => ['non-existent-method', 2],
         'lazy-unbraced-do' => [$disabled ? 'non-existent-method' : 'alfredbez/phpunit/mock-call-on-plain-type', 1],
         'lazy-unbraced-try' => [$disabled ? 'non-existent-method' : 'alfredbez/phpunit/mock-call-on-plain-type', 1],
@@ -132,7 +152,7 @@ foreach ([false, true] as $disabled) {
         if ($actual !== $expected) { fwrite(STDERR, "FAIL disabled=" . (int)$disabled . " {$marker} {$code} expected {$expected} got {$actual}\n"); $failures++; }
     }
     if (!$disabled) {
-        $positiveMarkers = ['narrowed-double', 'aliased-legacy', 'documented-property', 'test-legacy-property', 'documented-global', 'documented-trait', 'after-sibling-shadow', 'captured-before-mutation', 'literal-assignment', 'global-legacy', 'global-expects', 'global-pass', 'trait-legacy', 'trait-pass', 'helper-legacy', 'helper-property', 'closure-legacy', 'arrow-legacy', 'global-captured', 'legacy-method', 'legacy-expects', 'legacy-pass', 'captured-union', 'allowed-method', 'partial-protected', 'partial-unknown', 'magic-dynamic', 'test-framework-exception'];
+        $positiveMarkers = ['lazy-outer-after-shadow-write', 'lazy-outer-after-value-write', 'lazy-outer-after-arrow-write', 'lazy-outer-after-named-write', 'lazy-outer-after-uncaptured-write', 'lazy-outer-after-reference-parameter', 'lazy-property-after-class-write', 'lazy-outer-after-nested-narrowing', 'lazy-outer-after-nested-foreach', 'lazy-outer-after-nested-unset', 'narrowed-double', 'aliased-legacy', 'documented-property', 'test-legacy-property', 'documented-global', 'documented-trait', 'after-sibling-shadow', 'captured-before-mutation', 'literal-assignment', 'global-legacy', 'global-expects', 'global-pass', 'trait-legacy', 'trait-pass', 'helper-legacy', 'helper-property', 'closure-legacy', 'arrow-legacy', 'global-captured', 'legacy-method', 'legacy-expects', 'legacy-pass', 'captured-union', 'allowed-method', 'partial-protected', 'partial-unknown', 'magic-dynamic', 'test-framework-exception'];
         foreach ($issues as $issue) {
             $primary = $issue['annotations'][0];
             foreach ($issue['annotations'] as $candidate) { if ($candidate['kind'] === 'Primary') { $primary = $candidate; break; } }

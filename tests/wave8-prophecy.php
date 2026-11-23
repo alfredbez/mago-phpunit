@@ -52,4 +52,10 @@ foreach (['fixed', 'privateMethod', 'protectedMethod', 'staticMethod', '_hidden'
 $suite->expect($file, '$legacy->find(1)', 'prophecy-union', 'Use ObjectProphecy<Foo> instead of Foo|ObjectProphecy.');
 $suite->expectNative($file, '// wrong-chain', 'invalid-return-statement');
 $suite->expectNative($file, '// wrong-variable', 'invalid-return-statement');
+foreach (['// missing-fluent-argument', '// missing-held-argument'] as $target) {
+    $suite->expect($file, $target, 'prophecy-invalid-return', 'Parameter #0 cannot satisfy the return type of `Wave8\\Prophecy\\Service::optional()`.');
+}
+foreach (['// wrong-union-reveal', '// wrong-receiver-union', '// wrong-union-interface'] as $target) {
+    $suite->expectNative($file, $target, 'invalid-return-statement');
+}
 $suite->verify();

@@ -64,35 +64,32 @@ final class ProphecySupport implements MethodCallAnalysisHook
             }
             return null;
         }
+        $revealed = self::revealedType($context->invocation->receiverType);
         $targets = self::targets($context->invocation->receiverType);
-        if ($name === 'reveal' && $targets !== []) {
-            return self::targetType($targets);
+        if ($name === 'reveal') {
+            return $revealed;
         }
         if (in_array($name, ['willextend', 'willimplement'], true)) {
             $type = $context->invocation->getArgument(0, $name === 'willextend' ? 'class' : 'interface')?->type;
             $target = $type?->getLiteralClassString() ?? $type?->getLiteralString();
             if ($target !== null && $context->codebase->classOrInterfaceExists($target)) {
                 $target = strcasecmp($target, 'Traversable') === 0 ? 'Iterator' : $target;
-                if ($name === 'willextend') {
-                    $targets = array_values(array_filter($targets, $context->codebase->interfaceExists(...)));
-                }
-                $targets[] = $target;
-                return Type::namedObject(self::OBJECT, self::targetType(array_values(array_unique($targets))));
+                return Type::namedObject(self::OBJECT, self::mutatedTarget($context, $revealed ?? Type::object(), $target, $name === 'willextend'));
             }
         }
         if ($targets !== [] && !in_array($name, self::OBJECT_METHODS, true)) {
             $arguments = [];
             foreach ($context->invocation->arguments as $index => $argument) {
                 if ($argument->unpacked || $argument->name !== null || $argument->placeholder) {
-                    return Type::namedObject(self::METHOD, self::targetType($targets), Type::literalString($context->invocation->name));
+                    return Type::namedObject(self::METHOD, $revealed ?? self::targetType($targets), Type::literalString($context->invocation->name));
                 }
                 $type = $argument->type ?? Type::mixed();
                 if ($this->unknown($type) || $context->types->isContainedBy($type, Type::namedObject('Prophecy\\Argument\\Token\\TokenInterface'))) {
-                    continue;
+                    $type = Type::mixed();
                 }
                 $arguments[] = new ArrayItem(new ArrayKey(ArrayKeyKind::Integer, $index), false, $type);
             }
-            return Type::namedObject(self::METHOD, self::targetType($targets), Type::literalString($context->invocation->name),
+            return Type::namedObject(self::METHOD, $revealed ?? self::targetType($targets), Type::literalString($context->invocation->name),
                 Type::fromAtomic(new KeyedArrayType($arguments, null, null, $arguments !== [])));
         }
         return null;
@@ -276,10 +273,20 @@ final class ProphecySupport implements MethodCallAnalysisHook
                 }
                 $selected = $setup?->arguments[$index] ?? null;
                 $argumentType = $parameter->type?->type;
+                if ($setup !== null && $selected === null) {
+                    $complete = true;
+                    foreach ($setup->arguments as $argument) {
+                        $complete = $complete && !$argument->unpacked && $argument->name === null && !$argument->placeholder;
+                    }
+                    if ($complete) {
+                        $argumentType = Type::null();
+                    }
+                }
                 foreach ($setupArguments?->atomicTypes ?? [] as $atomic) {
                     if (!$atomic instanceof KeyedArrayType) {
                         continue;
                     }
+                    $argumentType = Type::null();
                     foreach ($atomic->knownItems ?? [] as $item) {
                         if ($item->key->kind === ArrayKeyKind::Integer && $item->key->value === $index) {
                             $argumentType = $item->type;
@@ -372,6 +379,40 @@ final class ProphecySupport implements MethodCallAnalysisHook
             return Type::namedObject($name);
         }
         return $context->codebase->functionExists('is_' . $name) ? Type::mixed() : null;
+    }
+
+    private static function revealedType(?Type $receiver): ?Type
+    {
+        $atoms = [];
+        foreach ($receiver?->atomicTypes ?? [] as $atomic) {
+            if (!$atomic instanceof NamedObjectType || strcasecmp($atomic->name, self::OBJECT) !== 0) {
+                return null;
+            }
+            array_push($atoms, ...($atomic->parameters[1] ?? $atomic->parameters[0] ?? Type::object())->atomicTypes);
+        }
+        return $atoms === [] ? null : Type::fromAtomics(...$atoms);
+    }
+
+    private static function mutatedTarget(ReturnTypeProviderContext $context, Type $current, string $target, bool $replaceClass): Type
+    {
+        $alternatives = [];
+        foreach ($current->atomicTypes as $atomic) {
+            $members = [];
+            if ($atomic instanceof NamedObjectType) {
+                if (!$replaceClass || $context->codebase->interfaceExists($atomic->name)) {
+                    $members[] = new NamedObjectType($atomic->name, $atomic->parameters, $atomic->variances, $atomic->static, $atomic->isThis, null, $atomic->remappedParameters);
+                }
+                foreach ($atomic->intersections ?? [] as $intersection) {
+                    if (!$replaceClass || ($intersection instanceof NamedObjectType && $context->codebase->interfaceExists($intersection->name))) {
+                        $members[] = $intersection;
+                    }
+                }
+            }
+            $members[] = new NamedObjectType($target, null, null, false, false, null, false);
+            $first = array_shift($members);
+            $alternatives[] = new NamedObjectType($first->name, $first->parameters, $first->variances, $first->static, $first->isThis, $members === [] ? null : $members, $first->remappedParameters);
+        }
+        return Type::fromAtomics(...$alternatives);
     }
 
     /** @return list<string> */

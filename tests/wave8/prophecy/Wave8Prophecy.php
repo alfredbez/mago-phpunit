@@ -21,6 +21,8 @@ interface Service
     public function notGenerator(): string;
     public function nullable(): ?string;
     public function narrowed(\stdClass|string $value): string;
+    public function optional(string $value = 'default'): string;
+    public function optionalNullable(?string $value = null): ?string;
 }
 interface Other {}
 abstract class RestrictedService
@@ -114,6 +116,12 @@ final class ProphecyTest extends TestCase
         $unpacked = $service->narrowed(...$arguments);
         $unpacked->willReturnArgument(0);
         $service->narrowed('fluent')->willReturnArgument(0);
+        $service->optional()->willReturnArgument(0); // missing-fluent-argument
+        $missing = $service->optional();
+        $missing->willReturnArgument(0); // missing-held-argument
+        $service->optionalNullable()->willReturnArgument(0);
+        $nullable = $service->optionalNullable();
+        $nullable->willReturnArgument(0);
     }
 
     /** @param list<mixed> $arguments */
@@ -199,4 +207,30 @@ final class ParentReplacementTest extends TestCase
         $p->willExtend(NewParent::class);
         return $p->reveal(); // right-variable
     }
+}
+
+/** @param \Prophecy\Prophecy\ObjectProphecy<OldParent|NewParent> $p */
+function wrongUnionReveal(\Prophecy\Prophecy\ObjectProphecy $p): OldParent
+{
+    return $p->reveal(); // wrong-union-reveal
+}
+/** @param \Prophecy\Prophecy\ObjectProphecy<OldParent>|\Prophecy\Prophecy\ObjectProphecy<NewParent> $p */
+function wrongReceiverUnion(\Prophecy\Prophecy\ObjectProphecy $p): OldParent
+{
+    return $p->reveal(); // wrong-receiver-union
+}
+/** @param \Prophecy\Prophecy\ObjectProphecy<OldParent|NewParent> $p */
+function correctUnionReveal(\Prophecy\Prophecy\ObjectProphecy $p): OldParent|NewParent
+{
+    return $p->reveal(); // correct-union-reveal
+}
+/** @param \Prophecy\Prophecy\ObjectProphecy<OldParent|NewParent> $p */
+function incorrectUnionImplementation(\Prophecy\Prophecy\ObjectProphecy $p): OldParent
+{
+    return $p->willImplement(Other::class)->reveal(); // wrong-union-interface
+}
+/** @param \Prophecy\Prophecy\ObjectProphecy<OldParent|NewParent> $p */
+function correctUnionImplementation(\Prophecy\Prophecy\ObjectProphecy $p): (OldParent&Other)|(NewParent&Other)
+{
+    return $p->willImplement(Other::class)->reveal();
 }

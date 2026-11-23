@@ -22,6 +22,8 @@ interface Wave8RuntimeService
     public function boolValue(): bool;
     public function nullable(): ?string;
     public function narrowed(\stdClass|string $value): string;
+    public function optional(string $value = 'default'): string;
+    public function optionalNullable(?string $value = null): ?string;
 }
 interface Wave8RuntimeMarker {}
 class Wave8RuntimeBase { public function id(): int { return 42; } }
@@ -76,6 +78,17 @@ final class Wave8ProphecyRuntimeTest extends TestCase
         $method->willReturnArgument(0);
         $this->expectException(\TypeError::class);
         $service->reveal()->narrowed($value);
+    }
+
+    public function testMissingOptionalPromiseArgumentReturnsNull(): void
+    {
+        $service = $this->prophesize(Wave8RuntimeService::class);
+        $service->optionalNullable()->willReturnArgument(0);
+        self::assertNull($service->reveal()->optionalNullable());
+        $method = $service->optional();
+        $method->willReturnArgument(0);
+        $this->expectException(\TypeError::class);
+        $service->reveal()->optional();
     }
 
     public function testParentReplacementRetainsInterfaces(): void

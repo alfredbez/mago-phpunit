@@ -40,20 +40,27 @@ final class AssertionQualityHook implements MethodCallAnalysisHook, NodeAnalysis
     /** @var \WeakMap<SourceFile, array<int, array{captures: array<string, int>, references: array<string, int>, writes: array<string, list<int>>, calls: list<array{start: int, end: int, name: string, arguments: list<string>}>}>> */
     private \WeakMap $scopes;
 
-    public function __construct(private readonly bool $functions = false)
+    public function __construct(private readonly bool $functions = false, private readonly bool $sameOnly = false)
     {
         $this->scopes = new \WeakMap();
     }
 
     public function getTargets(): array
     {
-        return $this->functions ? [NodeKind::FunctionCall] : array_map(
-            fn(string $method) => MethodTarget::exact('PHPUnit\\Framework\\Assert', $method), self::METHODS,
+        if ($this->functions) {
+            return [NodeKind::FunctionCall];
+        }
+        $methods = $this->sameOnly ? ['assertSame'] : array_values(array_diff(self::METHODS, ['assertSame']));
+        return array_map(
+            fn(string $method) => MethodTarget::exact('PHPUnit\\Framework\\Assert', $method), $methods,
         );
     }
 
     public function getRequirements(): array
     {
+        if ($this->sameOnly) {
+            return [FileAnalysisRequirement::SourceText, FileAnalysisRequirement::ArgumentTypes];
+        }
         return $this->functions
             ? [FileAnalysisRequirement::SourceText, FileAnalysisRequirement::TargetSubtree]
             : [FileAnalysisRequirement::SourceText, FileAnalysisRequirement::TargetSubtree, FileAnalysisRequirement::ArgumentTypes, FileAnalysisRequirement::ExpressionTypes];
@@ -61,10 +68,43 @@ final class AssertionQualityHook implements MethodCallAnalysisHook, NodeAnalysis
 
     public function analyze(NodeAnalysisContext $context): void
     {
-        $call = CallExpression::fromNode($context->source, $context->node);
-        $name = strtolower($call->getName($context->source) ?? '');
+        $source = $context->source;
+        $node = $context->node;
+        if ($this->sameOnly) {
+            $text = $source->getText($node);
+            $open = strpos($text, '(');
+            $arguments = $open === false ? $text : substr($text, $open + 1);
+            // Native argument types precede assertion narrowing.
+            $expected = $context->argumentTypes[0] ?? null;
+            $actual = $context->argumentTypes[1] ?? null;
+            if (!($expected instanceof Type && $actual instanceof Type
+                && $this->singleton($expected) && $this->singleton($actual))
+                && stripos($arguments, 'count') === false
+                && !str_contains($arguments, ':')) {
+                return;
+            }
+            $source = $context->analysis->getSourceFile();
+            $node = $this->findCall($source, $node);
+        }
+        $this->analyzeCall($context, $source, $node);
+    }
+
+    private function findCall(SourceFile $source, Node $target): Node
+    {
+        foreach ($source->getNodes($target->kind) as $node) {
+            if ($node->span->start === $target->span->start && $node->span->end === $target->span->end) {
+                return $node;
+            }
+        }
+        throw new \LogicException('The native assertion target is absent from its complete source snapshot.');
+    }
+
+    private function analyzeCall(NodeAnalysisContext $context, SourceFile $source, Node $node): void
+    {
+        $call = CallExpression::fromNode($source, $node);
+        $name = strtolower($call->getName($source) ?? '');
         if ($this->functions) {
-            $resolvedNames = $context->source->getResolvedNames($call->callee);
+            $resolvedNames = $source->getResolvedNames($call->callee);
             $resolved = $resolvedNames[0]->name ?? $name;
             if (!str_starts_with(strtolower(ltrim($resolved, '\\')), 'phpunit\\framework\\')) {
                 return;
@@ -91,8 +131,8 @@ final class AssertionQualityHook implements MethodCallAnalysisHook, NodeAnalysis
         $actualPosition = in_array($name, ['assertsame', 'assertinstanceof'], true) ? 1 : 0;
         [$actual, $actualNode] = $arguments['actual'] ?? $arguments['object'] ?? $arguments['array'] ?? $arguments[$actualPosition] ?? [null, null];
         if ($name === 'assertsame' && $actualNode !== null) {
-            $count = CallExpression::fromExpression($context->source, $actualNode);
-            $countName = $count?->getName($context->source);
+            $count = CallExpression::fromExpression($source, $actualNode);
+            $countName = $count?->getName($source);
             if ($count !== null && strtolower(ltrim($countName ?? '', '\\')) === 'count') {
                 $isCount = false;
                 if ($count->isMethod() && $count->receiver !== null && $count->arguments === []) {
@@ -100,7 +140,7 @@ final class AssertionQualityHook implements MethodCallAnalysisHook, NodeAnalysis
                     $isCount = $receiver !== null && $context->types->isContainedBy($receiver, Type::namedObject('Countable'));
                 }
                 if ($count->isFunction() && count($count->arguments) === 1) {
-                    $names = $context->source->getResolvedNames($count->callee);
+                    $names = $source->getResolvedNames($count->callee);
                     $isCount = $names === [];
                     $resolvedName = $names[0]->name ?? '';
                     if ($resolvedName !== '' && !$context->codebase->functionExists($resolvedName)) {
@@ -121,17 +161,17 @@ final class AssertionQualityHook implements MethodCallAnalysisHook, NodeAnalysis
         $expected = null;
         if ($name === 'assertnotnull') {
             if (!$context->types->canBeIdentical($actual, Type::null())) {
-                $this->redundant($context, $name, $actualNode, $actual);
+                $this->redundant($context, $source, $name, $actualNode, $actual);
             }
             return;
         }
         if ($name === 'assertsame') {
             [$first, $expectedNode] = $arguments['expected'] ?? $arguments[0] ?? [null, null];
             if ($first instanceof Type && $this->singleton($first) && $this->singleton($actual) && $context->types->equals($first, $actual)) {
-                if ($expectedNode !== null && $this->hasMutableFact($context, $expectedNode, $first)) {
+                if ($expectedNode !== null && $this->hasMutableFact($context, $source, $expectedNode, $first)) {
                     return;
                 }
-                $this->redundant($context, $name, $actualNode, $actual);
+                $this->redundant($context, $source, $name, $actualNode, $actual);
             }
             return;
         }
@@ -175,13 +215,12 @@ final class AssertionQualityHook implements MethodCallAnalysisHook, NodeAnalysis
             ? (!$context->types->canBeIdentical($actual, $expected)
                 || ($name === 'assertisnotnumeric' && $actual->getLiteralString() !== null && !is_numeric($actual->getLiteralString())))
             : $context->types->isContainedBy($actual, $expected))) {
-            $this->redundant($context, $name, $actualNode, $actual);
+            $this->redundant($context, $source, $name, $actualNode, $actual);
         }
     }
 
-    private function hasMutableFact(NodeAnalysisContext $context, Node $actual, Type $type): bool
+    private function hasMutableFact(NodeAnalysisContext $context, SourceFile $source, Node $actual, Type $type): bool
     {
-        $source = $context->source;
         $identity = preg_replace('/\s+/', '', $source->getText($actual));
         $property = $source->getDescendants($actual, NodeKind::PropertyAccess) !== []
             || $source->getDescendants($actual, NodeKind::StaticPropertyAccess) !== []
@@ -316,9 +355,9 @@ final class AssertionQualityHook implements MethodCallAnalysisHook, NodeAnalysis
         );
     }
 
-    private function redundant(NodeAnalysisContext $context, string $name, ?Node $actual, Type $type): void
+    private function redundant(NodeAnalysisContext $context, SourceFile $source, string $name, ?Node $actual, Type $type): void
     {
-        if ($actual !== null && $this->hasMutableFact($context, $actual, $type)) {
+        if ($actual !== null && $this->hasMutableFact($context, $source, $actual, $type)) {
             return;
         }
         $this->report($context, 'redundant-assertion', "Assertion {$name}() always passes for the static argument type.");

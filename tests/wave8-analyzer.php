@@ -11,6 +11,23 @@ $major = (int) explode('.', $version)[0];
 $modern = version_compare($version, '12.5', '>=');
 $legacy = $major <= 11;
 $suite = new Wave8Contracts('tests/wave8/analyzer');
+$suite->expect('Wave8MetadataFastPath.php', '    protected function setUp(): void {}' . "\n}\n\nfinal class DirectFixture", 'missing-parent-call', 'setUp() overrides a parent fixture without calling parent::setUp().');
+$suite->expect('Wave8MetadataFastPath.php', '    public function testIgnoredModernAnnotation()', 'annotation-without-value', 'Annotation @dataProvider requires whitespace followed by a value.', $legacy ? 1 : 0);
+$suite->expect('Wave8MetadataAliasedRequires.php', "#[RuntimePhp('8.2')]", 'requires-without-operator', 'Use an explicit comparison operator in the required version.');
+$sameFast = 'Wave8AssertSameFastPath.php';
+foreach ([
+    'self::assertSame(1, 1)', 'self::assertSame(actual: 3, expected: 3)',
+    'self::assertSame(null, null)', 'self::assertSame(true, true)', 'self::assertSame(false, false)',
+    "self::assertSame('value', 'value')", 'self::assertSame(1.5, 1.5)',
+    'self::assertSame(Marker::One, Marker::One)', '$this->assertSame(4, 4)',
+    "Check::assertSame('alias', 'alias')", '\\PHPUnit\\Framework\\Assert::assertSame(5, 5)',
+    "self::assertSame(message: 'first', actual: 6, expected: 6)",
+] as $target) {
+    $suite->expect($sameFast, $target, 'redundant-assertion', 'Assertion assertsame() always passes for the static argument type.');
+}
+foreach (['self::assertSame(0, count($values))', "self::assertSame(message: 'reordered', actual: count(\$values), expected: 2)"] as $target) {
+    $suite->expect($sameFast, $target, 'assert-same-count', 'Use assertCount() to compare a collection count.');
+}
 $quality = 'Wave8AnalyzerQuality.php';
 $suite->expect($quality, "#[RequiresPhp('8.2')]", 'requires-without-operator', 'Use an explicit comparison operator in the required version.');
 $suite->expect($quality, "#[RequiresPhpunit('>= 11.0')]", 'incomplete-requires-version', 'Write a complete major.minor.patch version in the requirement.', $modern ? 1 : 0);

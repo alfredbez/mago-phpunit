@@ -49,6 +49,7 @@ final class PhpUnitPlugin implements Plugin
         $registry->registerMethodCallAnalysisHook($prophecy);
         $registry->registerMethodAssertionProvider(new \AlfredBez\MagoPhpunit\Analyzer\Providers\ProphecyMutationAssertions());
         $registry->registerMethodCallAnalysisHook(new \AlfredBez\MagoPhpunit\Analyzer\Providers\AssertionQualityHook());
+        $registry->registerMethodCallAnalysisHook(new \AlfredBez\MagoPhpunit\Analyzer\Providers\AssertionQualityHook(sameOnly: true));
         $registry->registerNodeAnalysisHook(new \AlfredBez\MagoPhpunit\Analyzer\Providers\AssertionQualityHook(true));
         $registry->registerClassLikeAnalysisHook(new \AlfredBez\MagoPhpunit\Analyzer\Providers\TestMetadataHook());
         $registry->enableProviderMemoization();

@@ -72,6 +72,11 @@ final class TestMetadataHook implements ClassLikeAnalysisHook
         }
         $class = $context->codebase->getClassLike($className);
         $major = PhpUnitVersion::major($context->codebase);
+        if ($major >= 12
+            && strtolower($class?->directParentClass ?? '') === 'phpunit\\framework\\testcase'
+            && stripos($source->contents, 'RequiresPhp') === false) {
+            return;
+        }
         $this->checkRequires($context, $context->node);
         if ($major <= 11 && !self::hasPhpUnitAttributes($context, $context->node)) {
             $this->checkAnnotations($context, $context->node);

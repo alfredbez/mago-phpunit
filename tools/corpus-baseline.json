@@ -7,7 +7,11 @@
             "eliminated_by_code": {
                 "mixed-array-access": 13
             },
-            "added_by_code": []
+            "added_by_code": {
+                "alfredbez/phpunit/mock-call-on-plain-type": 4,
+                "alfredbez/phpunit/phpunit-invalid-covers-target": 2,
+                "alfredbez/phpunit/redundant-assertion": 2
+            }
         },
         "phpunit": {
             "ref": "12.5.45",
@@ -16,7 +20,8 @@
                 "uninitialized-property": 8
             },
             "added_by_code": {
-                "alfredbez/phpunit/phpunit-data-provider": 4
+                "alfredbez/phpunit/phpunit-data-provider": 4,
+                "alfredbez/phpunit/redundant-assertion": 88
             }
         },
         "shopware": {
@@ -33,7 +38,8 @@
             "added_by_code": {
                 "invalid-iterator": 1,
                 "invalid-method-access": 1,
-                "mixed-array-access": 5
+                "mixed-array-access": 5,
+                "alfredbez/phpunit/redundant-assertion": 7
             }
         },
         "symfony": {

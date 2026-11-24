@@ -6,6 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-24
+
+### Fixed
+
+- `willReturnOnConsecutiveCalls()` accepts PHPUnit `Stub` objects such as `$this->throwException(...)` on typed methods and accepts `Stub\Exception` on `never` methods, while `willReturn()` continues rejecting direct `Stub` instances.
+- `#[TestWith]` argument validation resolves unit enum cases, backed enum cases, and backed enum `->value` literals from attribute metadata instead of rejecting valid enum rows.
+
 ## [0.1.0] - 2026-11-22
 
 Version `0.1.0` targets Mago `^1.60.2` (verified on `1.60.2` and `1.61.0`) and PHPUnit `^10.5 || ^11.5 || ^12.0 || ^13.0`.

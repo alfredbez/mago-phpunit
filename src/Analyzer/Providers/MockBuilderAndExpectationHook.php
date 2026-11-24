@@ -40,6 +40,7 @@ final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
     public const INCOMPATIBLE_MOCK_RETURN = 'phpunit-incompatible-mock-return';
 
     private const STUB_INTERFACE = 'PHPUnit\\Framework\\MockObject\\Stub\\Stub';
+    private const EXCEPTION_STUB = 'PHPUnit\\Framework\\MockObject\\Stub\\Exception';
 
     private const STUB_IMPLEMENTATIONS = [
         'phpunit\\framework\\mockobject\\stub\\stub' => true,
@@ -215,7 +216,7 @@ final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
         $isConsecutive = $called === 'willreturnonconsecutivecalls';
 
         if (self::isNever($declaredReturn)) {
-            if ($isConsecutive && self::allArgumentsAreStubs($context)) {
+            if ($isConsecutive && self::allArgumentsThrow($context)) {
                 return;
             }
             $context->report(
@@ -488,7 +489,7 @@ final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
         return $types;
     }
 
-    private static function allArgumentsAreStubs(NodeAnalysisContext $context): bool
+    private static function allArgumentsThrow(NodeAnalysisContext $context): bool
     {
         if ($context->argumentTypes === []) {
             return false;
@@ -507,13 +508,33 @@ final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
                 return false;
             }
             foreach ($candidateTypes as $candidateType) {
-                if (!self::isStubObject($context, $candidateType)) {
+                if (!self::isThrowingStub($context, $candidateType)) {
                     return false;
                 }
             }
         }
 
         return true;
+    }
+
+    private static function isThrowingStub(NodeAnalysisContext $context, Type $type): bool
+    {
+        if ($type->atomicTypes === []) {
+            return false;
+        }
+
+        $allExceptionStub = true;
+        foreach ($type->atomicTypes as $atomic) {
+            if (!$atomic instanceof NamedObjectType || strtolower($atomic->name) !== 'phpunit\\framework\\mockobject\\stub\\exception') {
+                $allExceptionStub = false;
+                break;
+            }
+        }
+        if ($allExceptionStub) {
+            return true;
+        }
+
+        return $context->types->isContainedBy($type, Type::namedObject(self::EXCEPTION_STUB));
     }
 
     private static function isStubObject(NodeAnalysisContext $context, Type $type): bool

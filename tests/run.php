@@ -323,7 +323,7 @@ $expected[true]['tests/fixtures/ExternalCrossFileProvider.php'] = [
     'alfredbez/phpunit/phpunit-data-provider' => 0,
 ];
 $expected[false]['tests/fixtures/TestWithAttributes.php'] = [
-    'alfredbez/phpunit/phpunit-data-provider' => 15,
+    'alfredbez/phpunit/phpunit-data-provider' => 16,
 ];
 $expected[true]['tests/fixtures/TestWithAttributes.php'] = [
     'alfredbez/phpunit/phpunit-data-provider' => 0,
@@ -366,7 +366,7 @@ $stubMethodNoNamedArgs = $stubClass->hasMethod('method')
     );
 $expected[false]['tests/fixtures/MockExpectationContracts.php'] = [
     'alfredbez/phpunit/phpunit-unknown-mocked-method' => 1,
-    'alfredbez/phpunit/phpunit-incompatible-mock-return' => 9,
+    'alfredbez/phpunit/phpunit-incompatible-mock-return' => 10,
     'named-argument-not-allowed' => $stubMethodNoNamedArgs ? 1 : 0,
 ];
 $expected[true]['tests/fixtures/MockExpectationContracts.php'] = [
@@ -899,7 +899,8 @@ foreach ([
     'for testIntBackedEnumValueTestWith()' => 0,
     'Attribute #[TestWith] row #0 provides AlfredBez\\MagoPhpunit\\Fixtures\\TestWithStringMode::Active for $mode of testWrongEnumTestWith(), which expects AlfredBez\\MagoPhpunit\\Fixtures\\TestWithUnitMode.' => 1,
     'Attribute #[TestWith] row #0 provides AlfredBez\\MagoPhpunit\\Fixtures\\TestWithUnitMode::Fast for $label of testEnumForStringTestWith(), which expects string.' => 1,
-    'Attribute #[TestWith] row #0 provides int for $label of testIntBackedEnumValueForStringTestWith(), which expects string.' => 1,
+    'Attribute #[TestWith] row #0 provides int(1) for $label of testIntBackedEnumValueForStringTestWith(), which expects string.' => 1,
+    'Attribute #[TestWith] row #0 provides int(1) for $modeCode of testIntBackedEnumWrongLiteralValueTestWith(), which expects int.' => 1,
 ] as $needle => $count) {
     $failures += assertMessageCount('with extension', $with, $testWithFile, $dataProvider, $needle, $count);
 }
@@ -956,6 +957,7 @@ foreach ([
     'Method `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::reset()` has return type `void` and cannot be configured with willReturn().' => 1,
     'Argument #2 of willReturnOnConsecutiveCalls() provides `int` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::charge()`, whose declared return type is `string`.' => 1,
     'Argument #1 of willReturn() provides `PHPUnit\\Framework\\MockObject\\Stub\\Exception` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::charge()`, whose declared return type is `string`.' => 1,
+    'Method `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::abort()` has return type `never` and cannot be configured with willReturnOnConsecutiveCalls().' => 1,
     'Argument #1 of willReturn() provides `string` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::rate()`, whose declared return type is `float`.' => 1,
 ] as $needle => $count) {
     $failures += assertMessageCount('with extension', $with, 'tests/fixtures/MockExpectationContracts.php', $incompatibleReturnCode, $needle, $count);

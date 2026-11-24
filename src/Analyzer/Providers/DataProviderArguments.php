@@ -16,6 +16,7 @@ use Mago\Sdk\Analyzer\LifecycleContext;
 use Mago\Sdk\Analyzer\Metadata\AttributeMetadata;
 use Mago\Sdk\Analyzer\Metadata\ClassLikeKind;
 use Mago\Sdk\Analyzer\Metadata\ClassLikeMetadata;
+use Mago\Sdk\Analyzer\Metadata\EnumCaseMetadata;
 use Mago\Sdk\Analyzer\Metadata\MemberIdentifier;
 use Mago\Sdk\Analyzer\Metadata\MetadataFlags;
 use Mago\Sdk\Analyzer\Metadata\MethodFields;
@@ -2146,12 +2147,26 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
             return null;
         }
 
-        $result = Type::fromAtomic($resolvedAtomics[0]);
+        $result = self::typeFromAtomic($resolvedAtomics[0]);
         for ($i = 1, $total = count($resolvedAtomics); $i < $total; ++$i) {
-            $result = Type::union($result, Type::fromAtomic($resolvedAtomics[$i]));
+            $result = Type::union($result, self::typeFromAtomic($resolvedAtomics[$i]));
         }
 
         return $result;
+    }
+
+    private static function typeFromAtomic(\Mago\Sdk\Analyzer\Type\AtomicType $atomic): Type
+    {
+        if ($atomic instanceof ScalarType) {
+            if ($atomic->refinement instanceof IntegerType && $atomic->refinement->kind === IntegerTypeKind::Literal && $atomic->refinement->minimum !== null) {
+                return Type::literalInt($atomic->refinement->minimum);
+            }
+            if ($atomic->refinement instanceof StringType && $atomic->refinement->literalValue !== null) {
+                return Type::literalString($atomic->refinement->literalValue);
+            }
+        }
+
+        return Type::fromAtomic($atomic);
     }
 
     /**
@@ -2199,6 +2214,30 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
 
         $atomics = [];
         foreach ($operand->atomicTypes as $atomic) {
+            if ($atomic instanceof EnumType && $atomic->case !== null) {
+                $caseMeta = $context->codebase->getEnumCase($atomic->name, $atomic->case);
+                if (
+                    $caseMeta instanceof EnumCaseMetadata
+                    && $caseMeta->valueType instanceof Type
+                    && $caseMeta->valueType->atomicTypes !== []
+                ) {
+                    $literalInt = $caseMeta->valueType->getLiteralInt();
+                    if ($literalInt !== null) {
+                        $atomics[] = Type::literalInt($literalInt)->atomicTypes[0];
+                        continue;
+                    }
+                    $literalString = $caseMeta->valueType->getLiteralString();
+                    if ($literalString !== null) {
+                        $atomics[] = Type::literalString($literalString)->atomicTypes[0];
+                        continue;
+                    }
+                    foreach ($caseMeta->valueType->atomicTypes as $caseAtomic) {
+                        $atomics[] = $caseAtomic;
+                    }
+                    continue;
+                }
+            }
+
             $enumName = null;
             if ($atomic instanceof EnumType) {
                 $enumName = $atomic->name;

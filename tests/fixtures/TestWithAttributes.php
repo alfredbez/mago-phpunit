@@ -89,6 +89,18 @@ final class TestWithAttributesTest extends TestCase
     {
     }
 
+    /** @param 1 $modeCode */
+    #[TestWith([TestWithIntMode::One->value])]
+    public function testIntBackedEnumLiteralValueTestWith($modeCode): void
+    {
+    }
+
+    /** @param 2 $modeCode */
+    #[TestWith([TestWithIntMode::One->value])]
+    public function testIntBackedEnumWrongLiteralValueTestWith($modeCode): void
+    {
+    }
+
     #[TestWith([TestWithStringMode::Active])]
     public function testWrongEnumTestWith(TestWithUnitMode $mode): void
     {

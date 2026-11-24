@@ -116,6 +116,7 @@ final class MockExpectationContractsTest extends TestCase
         $stub->method('reset')->willReturn(true);
         $stub->method('charge')->willReturnOnConsecutiveCalls('ok', 42);
         $stub->method('charge')->willReturn($this->throwException(new \RuntimeException('direct-stub-invalid')));
+        $stub->method('abort')->willReturnOnConsecutiveCalls(new \PHPUnit\Framework\MockObject\Stub\ReturnStub(null));
 
         $mock = $this->createMock(BillingGateway::class);
         $mock->expects(self::once())->method('rate')->willReturn('not-a-float');

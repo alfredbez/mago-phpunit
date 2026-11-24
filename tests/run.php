@@ -7,7 +7,12 @@ require __DIR__ . '/../vendor/autoload.php';
 
 $failures = 0;
 
-$version = trim(run([PHP_BINARY, 'vendor/bin/mago', '--version'])['stdout']);
+$magoBinEnv = getenv('MAGO_BIN');
+$magoCommand = ($magoBinEnv !== false && $magoBinEnv !== '')
+    ? [$magoBinEnv]
+    : [PHP_BINARY, 'vendor/bin/mago'];
+
+$version = trim(run([...$magoCommand, '--version'])['stdout']);
 $phpunit = trim(run([PHP_BINARY, 'vendor/bin/phpunit', '--version'])['stdout']);
 $phpunitMajor = 0;
 if (preg_match('/PHPUnit (\d+)/', $phpunit, $phpunitMatch) === 1) {
@@ -19,7 +24,7 @@ if (preg_match('/^mago (\d+\.\d+\.\d+)/', $version, $versionMatch) !== 1 || vers
     exit(1);
 }
 
-$validated = run([PHP_BINARY, 'vendor/bin/mago', 'extension', 'validate']);
+$validated = run([...$magoCommand, 'extension', 'validate']);
 fwrite(STDOUT, "extension validate (exit {$validated['exit']}):\n");
 fwrite(STDOUT, trim($validated['stdout'] . $validated['stderr']) . "\n\n");
 if ($validated['exit'] !== 0) {
@@ -318,7 +323,7 @@ $expected[true]['tests/fixtures/ExternalCrossFileProvider.php'] = [
     'alfredbez/phpunit/phpunit-data-provider' => 0,
 ];
 $expected[false]['tests/fixtures/TestWithAttributes.php'] = [
-    'alfredbez/phpunit/phpunit-data-provider' => 12,
+    'alfredbez/phpunit/phpunit-data-provider' => 15,
 ];
 $expected[true]['tests/fixtures/TestWithAttributes.php'] = [
     'alfredbez/phpunit/phpunit-data-provider' => 0,
@@ -361,7 +366,7 @@ $stubMethodNoNamedArgs = $stubClass->hasMethod('method')
     );
 $expected[false]['tests/fixtures/MockExpectationContracts.php'] = [
     'alfredbez/phpunit/phpunit-unknown-mocked-method' => 1,
-    'alfredbez/phpunit/phpunit-incompatible-mock-return' => 8,
+    'alfredbez/phpunit/phpunit-incompatible-mock-return' => 9,
     'named-argument-not-allowed' => $stubMethodNoNamedArgs ? 1 : 0,
 ];
 $expected[true]['tests/fixtures/MockExpectationContracts.php'] = [
@@ -888,6 +893,13 @@ foreach ([
         : 'Attribute #[TestWithJson] row #5 provides 1 argument for testTestWithJson(), which requires 2.') => 1,
     'Attribute #[TestWithJson] row #6 for testTestWithJson() contains invalid JSON.' => 1,
     'Attribute #[TestWithJson] row #7 provides int for testTestWithJson(), which expects an argument list.' => 1,
+    'for testUnitEnumTestWith()' => 0,
+    'for testBackedEnumTestWith()' => 0,
+    'for testBackedEnumValueTestWith()' => 0,
+    'for testIntBackedEnumValueTestWith()' => 0,
+    'Attribute #[TestWith] row #0 provides AlfredBez\\MagoPhpunit\\Fixtures\\TestWithStringMode::Active for $mode of testWrongEnumTestWith(), which expects AlfredBez\\MagoPhpunit\\Fixtures\\TestWithUnitMode.' => 1,
+    'Attribute #[TestWith] row #0 provides AlfredBez\\MagoPhpunit\\Fixtures\\TestWithUnitMode::Fast for $label of testEnumForStringTestWith(), which expects string.' => 1,
+    'Attribute #[TestWith] row #0 provides int for $label of testIntBackedEnumValueForStringTestWith(), which expects string.' => 1,
 ] as $needle => $count) {
     $failures += assertMessageCount('with extension', $with, $testWithFile, $dataProvider, $needle, $count);
 }
@@ -943,6 +955,7 @@ foreach ([
     'Argument #1 of willReturn() provides `string` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::findCustomer()`, whose declared return type is `AlfredBez\\MagoPhpunit\\Fixtures\\BillingCustomer|null`.' => 1,
     'Method `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::reset()` has return type `void` and cannot be configured with willReturn().' => 1,
     'Argument #2 of willReturnOnConsecutiveCalls() provides `int` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::charge()`, whose declared return type is `string`.' => 1,
+    'Argument #1 of willReturn() provides `PHPUnit\\Framework\\MockObject\\Stub\\Exception` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::charge()`, whose declared return type is `string`.' => 1,
     'Argument #1 of willReturn() provides `string` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::rate()`, whose declared return type is `float`.' => 1,
 ] as $needle => $count) {
     $failures += assertMessageCount('with extension', $with, 'tests/fixtures/MockExpectationContracts.php', $incompatibleReturnCode, $needle, $count);
@@ -1015,7 +1028,10 @@ function run(array $command): array
 /** @return list<array{level: string, code: string, file: string, line: int, message: string}> */
 function analyze(bool $noExtensions): array
 {
-    $command = [PHP_BINARY, 'vendor/bin/mago', 'analyze', '--reporting-format=json'];
+    $magoBinEnv = getenv('MAGO_BIN');
+    $command = ($magoBinEnv !== false && $magoBinEnv !== '')
+        ? [$magoBinEnv, 'analyze', '--reporting-format=json']
+        : [PHP_BINARY, 'vendor/bin/mago', 'analyze', '--reporting-format=json'];
     if ($noExtensions) {
         $command[] = '--no-extensions';
     }

@@ -39,6 +39,20 @@ final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
     public const INVALID_MOCK_BUILDER_METHOD = 'phpunit-invalid-mock-builder-method';
     public const INCOMPATIBLE_MOCK_RETURN = 'phpunit-incompatible-mock-return';
 
+    private const STUB_INTERFACE = 'PHPUnit\\Framework\\MockObject\\Stub\\Stub';
+
+    private const STUB_IMPLEMENTATIONS = [
+        'phpunit\\framework\\mockobject\\stub\\stub' => true,
+        'phpunit\\framework\\mockobject\\stub\\exception' => true,
+        'phpunit\\framework\\mockobject\\stub\\returnstub' => true,
+        'phpunit\\framework\\mockobject\\stub\\returncallback' => true,
+        'phpunit\\framework\\mockobject\\stub\\returnargument' => true,
+        'phpunit\\framework\\mockobject\\stub\\returnself' => true,
+        'phpunit\\framework\\mockobject\\stub\\returnvaluemap' => true,
+        'phpunit\\framework\\mockobject\\stub\\returnreference' => true,
+        'phpunit\\framework\\mockobject\\stub\\consecutivecalls' => true,
+    ];
+
     private const MOCK_BUILDER_CLASSES = [
         'phpunit\\framework\\mockobject\\mockbuilder' => true,
         'phpunit\\framework\\mockobject\\testdoublebuilder' => true,
@@ -198,8 +212,25 @@ final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
 
         $targetLabel = implode('&', $targets);
         $displayCall = $called === 'willreturn' ? 'willReturn' : 'willReturnOnConsecutiveCalls';
+        $isConsecutive = $called === 'willreturnonconsecutivecalls';
 
-        if (self::isNever($declaredReturn) || ($called === 'willreturn' && self::isVoid($declaredReturn))) {
+        if (self::isNever($declaredReturn)) {
+            if ($isConsecutive && self::allArgumentsAreStubs($context)) {
+                return;
+            }
+            $context->report(
+                Level::Error,
+                self::INCOMPATIBLE_MOCK_RETURN,
+                Issue::at(
+                    "Method `{$targetLabel}::{$methodName}()` has return type `{$declaredReturn}` and cannot be configured with {$displayCall}().",
+                    new SourceLocation($context->analysis->file, $context->node->span),
+                ),
+            );
+
+            return;
+        }
+
+        if ($called === 'willreturn' && self::isVoid($declaredReturn)) {
             $context->report(
                 Level::Error,
                 self::INCOMPATIBLE_MOCK_RETURN,
@@ -234,6 +265,11 @@ final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
 
             foreach ($candidateTypes as $candidateType) {
                 if (self::containsMixedOrTemplate($candidateType)) {
+                    continue;
+                }
+
+                // ConsecutiveCalls::invoke() unwraps any PHPUnit Stub (such as throwException()).
+                if ($isConsecutive && self::isStubObject($context, $candidateType)) {
                     continue;
                 }
 
@@ -450,6 +486,54 @@ final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
         }
 
         return $types;
+    }
+
+    private static function allArgumentsAreStubs(NodeAnalysisContext $context): bool
+    {
+        if ($context->argumentTypes === []) {
+            return false;
+        }
+
+        $call = CallExpression::fromNode($context->source, $context->node);
+        foreach ($context->argumentTypes as $index => $argType) {
+            if (!$argType instanceof Type) {
+                return false;
+            }
+            $callArg = $call->arguments[$index] ?? null;
+            $candidateTypes = $callArg !== null && $callArg->unpacked
+                ? self::extractUnpackedArgumentTypes($argType)
+                : [$argType];
+            if ($candidateTypes === []) {
+                return false;
+            }
+            foreach ($candidateTypes as $candidateType) {
+                if (!self::isStubObject($context, $candidateType)) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    private static function isStubObject(NodeAnalysisContext $context, Type $type): bool
+    {
+        if ($type->atomicTypes === []) {
+            return false;
+        }
+
+        $allKnown = true;
+        foreach ($type->atomicTypes as $atomic) {
+            if (!$atomic instanceof NamedObjectType || !isset(self::STUB_IMPLEMENTATIONS[strtolower($atomic->name)])) {
+                $allKnown = false;
+                break;
+            }
+        }
+        if ($allKnown) {
+            return true;
+        }
+
+        return $context->types->isContainedBy($type, Type::namedObject(self::STUB_INTERFACE));
     }
 
     private static function isVoid(Type $type): bool

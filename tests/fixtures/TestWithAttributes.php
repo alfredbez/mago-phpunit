@@ -9,6 +9,23 @@ use PHPUnit\Framework\Attributes\TestWith;
 use PHPUnit\Framework\Attributes\TestWithJson;
 use PHPUnit\Framework\TestCase;
 
+enum TestWithUnitMode
+{
+    case Fast;
+    case Slow;
+}
+
+enum TestWithStringMode: string
+{
+    case Active = 'active';
+    case Paused = 'paused';
+}
+
+enum TestWithIntMode: int
+{
+    case One = 1;
+}
+
 final class TestWithAttributesTest extends TestCase
 {
     public function testSeed(): string
@@ -47,6 +64,43 @@ final class TestWithAttributesTest extends TestCase
     #[TestWithJson('{invalid')]
     #[TestWithJson('42')]
     public function testTestWithJson(int $n, string $label): void
+    {
+    }
+
+    #[TestWith([TestWithUnitMode::Fast])]
+    #[TestWith([TestWithUnitMode::Slow])]
+    public function testUnitEnumTestWith(TestWithUnitMode $mode): void
+    {
+    }
+
+    #[TestWith([TestWithStringMode::Active])]
+    #[TestWith([TestWithStringMode::Paused])]
+    public function testBackedEnumTestWith(TestWithStringMode $mode): void
+    {
+    }
+
+    #[TestWith([TestWithStringMode::Active->value])]
+    public function testBackedEnumValueTestWith(string $modeValue): void
+    {
+    }
+
+    #[TestWith([TestWithIntMode::One->value])]
+    public function testIntBackedEnumValueTestWith(int $modeCode): void
+    {
+    }
+
+    #[TestWith([TestWithStringMode::Active])]
+    public function testWrongEnumTestWith(TestWithUnitMode $mode): void
+    {
+    }
+
+    #[TestWith([TestWithUnitMode::Fast])]
+    public function testEnumForStringTestWith(string $label): void
+    {
+    }
+
+    #[TestWith([TestWithIntMode::One->value])]
+    public function testIntBackedEnumValueForStringTestWith(string $label): void
     {
     }
 }

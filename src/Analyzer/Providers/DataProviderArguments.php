@@ -14,6 +14,8 @@ use Mago\Sdk\Analyzer\FileAnalysis;
 use Mago\Sdk\Analyzer\FileAnalysisRequirement;
 use Mago\Sdk\Analyzer\LifecycleContext;
 use Mago\Sdk\Analyzer\Metadata\AttributeMetadata;
+use Mago\Sdk\Analyzer\Metadata\ClassLikeKind;
+use Mago\Sdk\Analyzer\Metadata\ClassLikeMetadata;
 use Mago\Sdk\Analyzer\Metadata\MemberIdentifier;
 use Mago\Sdk\Analyzer\Metadata\MetadataFlags;
 use Mago\Sdk\Analyzer\Metadata\MethodFields;
@@ -24,6 +26,9 @@ use Mago\Sdk\Analyzer\Type\AnyObjectType;
 use Mago\Sdk\Analyzer\Type\ArrayItem;
 use Mago\Sdk\Analyzer\Type\ArrayKey;
 use Mago\Sdk\Analyzer\Type\ArrayKeyKind;
+use Mago\Sdk\Analyzer\Type\DerivedType;
+use Mago\Sdk\Analyzer\Type\DerivedTypeKind;
+use Mago\Sdk\Analyzer\Type\EnumType;
 use Mago\Sdk\Analyzer\Type\FloatType;
 use Mago\Sdk\Analyzer\Type\FloatTypeKind;
 use Mago\Sdk\Analyzer\Type\IntegerType;
@@ -34,6 +39,9 @@ use Mago\Sdk\Analyzer\Type\ListElement;
 use Mago\Sdk\Analyzer\Type\ListType;
 use Mago\Sdk\Analyzer\Type\MixedType;
 use Mago\Sdk\Analyzer\Type\NamedObjectType;
+use Mago\Sdk\Analyzer\Type\ReferenceSelectorKind;
+use Mago\Sdk\Analyzer\Type\ReferenceType;
+use Mago\Sdk\Analyzer\Type\ReferenceTypeKind;
 use Mago\Sdk\Analyzer\Type\ScalarType;
 use Mago\Sdk\Analyzer\Type\ScalarTypeKind;
 use Mago\Sdk\Analyzer\Type\SimpleAtomicType;
@@ -2067,6 +2075,11 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
         if (!$this->isCheckableType($argumentType)) {
             return;
         }
+        $resolvedArgumentType = $this->resolveUnpopulatedType($context, $argumentType);
+        if ($resolvedArgumentType === null) {
+            return;
+        }
+        $argumentType = $resolvedArgumentType;
         if ($this->isFastPathContained($argumentType, $parameterType)) {
             return;
         }
@@ -2083,6 +2096,129 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
             $test,
             (string) $parameterType,
         ));
+    }
+
+    /**
+     * Resolves unpopulated ReferenceType / DerivedType nodes produced by PHP attribute
+     * metadata (such as `Enum::Case` and `BackedEnum::Case->value` in `#[TestWith]`).
+     */
+    private function resolveUnpopulatedType(LifecycleContext $context, Type $type): ?Type
+    {
+        $needsResolution = false;
+        foreach ($type->atomicTypes as $atomic) {
+            if ($atomic instanceof ReferenceType || $atomic instanceof DerivedType) {
+                $needsResolution = true;
+                break;
+            }
+        }
+        if (!$needsResolution) {
+            return $type;
+        }
+
+        $resolvedAtomics = [];
+        foreach ($type->atomicTypes as $atomic) {
+            if ($atomic instanceof ReferenceType) {
+                $resolved = $this->resolveReferenceAtomic($context, $atomic);
+                if ($resolved === null) {
+                    return null;
+                }
+                foreach ($resolved as $item) {
+                    $resolvedAtomics[] = $item;
+                }
+                continue;
+            }
+
+            if ($atomic instanceof DerivedType) {
+                $resolved = $this->resolveDerivedAtomic($context, $atomic);
+                if ($resolved === null) {
+                    return null;
+                }
+                foreach ($resolved as $item) {
+                    $resolvedAtomics[] = $item;
+                }
+                continue;
+            }
+
+            $resolvedAtomics[] = $atomic;
+        }
+
+        if ($resolvedAtomics === []) {
+            return null;
+        }
+
+        $result = Type::fromAtomic($resolvedAtomics[0]);
+        for ($i = 1, $total = count($resolvedAtomics); $i < $total; ++$i) {
+            $result = Type::union($result, Type::fromAtomic($resolvedAtomics[$i]));
+        }
+
+        return $result;
+    }
+
+    /**
+     * @return list<\Mago\Sdk\Analyzer\Type\AtomicType>|null
+     */
+    private function resolveReferenceAtomic(LifecycleContext $context, ReferenceType $reference): ?array
+    {
+        if (
+            $reference->kind !== ReferenceTypeKind::Member
+            || $reference->selector !== ReferenceSelectorKind::Identifier
+            || $reference->member === null
+        ) {
+            return null;
+        }
+
+        $meta = $context->codebase->getClassLike($reference->name);
+        if (!$meta instanceof ClassLikeMetadata) {
+            return null;
+        }
+
+        if ($meta->kind === ClassLikeKind::Enum) {
+            foreach ($meta->enumCases as $caseName) {
+                if (strcasecmp($caseName, $reference->member) === 0) {
+                    return [new EnumType($meta->originalName, $caseName)];
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @return list<\Mago\Sdk\Analyzer\Type\AtomicType>|null
+     */
+    private function resolveDerivedAtomic(LifecycleContext $context, DerivedType $derived): ?array
+    {
+        if ($derived->kind !== DerivedTypeKind::ValueOf || !isset($derived->operands[0])) {
+            return null;
+        }
+
+        $operand = $this->resolveUnpopulatedType($context, $derived->operands[0]);
+        if ($operand === null || $operand->atomicTypes === []) {
+            return null;
+        }
+
+        $atomics = [];
+        foreach ($operand->atomicTypes as $atomic) {
+            $enumName = null;
+            if ($atomic instanceof EnumType) {
+                $enumName = $atomic->name;
+            } elseif ($atomic instanceof NamedObjectType) {
+                $enumName = $atomic->name;
+            } else {
+                return null;
+            }
+
+            $meta = $context->codebase->getClassLike($enumName);
+            if (!$meta instanceof ClassLikeMetadata || $meta->kind !== ClassLikeKind::Enum || !$meta->enumType instanceof Type) {
+                return null;
+            }
+
+            foreach ($meta->enumType->atomicTypes as $backingAtomic) {
+                $atomics[] = $backingAtomic;
+            }
+        }
+
+        return $atomics === [] ? null : $atomics;
     }
 
     private function isFastPathContained(Type $argumentType, Type $parameterType): bool
@@ -2113,6 +2249,28 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
     {
         if ($actual instanceof SimpleAtomicType && $expected instanceof SimpleAtomicType) {
             return $actual->kind === $expected->kind;
+        }
+
+        if ($actual instanceof EnumType) {
+            if ($expected instanceof AnyObjectType) {
+                return true;
+            }
+            if ($expected instanceof EnumType) {
+                if (strtolower($actual->name) !== strtolower($expected->name)) {
+                    return false;
+                }
+
+                return $expected->case === null
+                    || ($actual->case !== null && strcasecmp($actual->case, $expected->case) === 0);
+            }
+            if (
+                $expected instanceof NamedObjectType
+                && $expected->parameters === null
+                && $expected->intersections === null
+                && strtolower($actual->name) === strtolower($expected->name)
+            ) {
+                return true;
+            }
         }
 
         if ($actual instanceof NamedObjectType) {

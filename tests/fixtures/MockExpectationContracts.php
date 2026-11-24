@@ -16,6 +16,8 @@ interface BillingGateway
 
     public function reset(): void;
 
+    public function abort(): never;
+
     public function untyped();
 
     public function anything(): mixed;
@@ -50,6 +52,11 @@ class ConcreteBillingGateway implements BillingGateway
 
     public function reset(): void {}
 
+    public function abort(): never
+    {
+        throw new \RuntimeException('aborted');
+    }
+
     public function untyped()
     {
         return 1;
@@ -83,6 +90,8 @@ final class MockExpectationContractsTest extends TestCase
         $stub->method('untyped')->willReturn(123);
         $stub->method('anything')->willReturn('any');
         $stub->method('charge')->willReturnOnConsecutiveCalls('a', 'b');
+        $stub->method('charge')->willReturnOnConsecutiveCalls('a', $this->throwException(new \RuntimeException('boom')));
+        $stub->method('abort')->willReturnOnConsecutiveCalls($this->throwException(new \RuntimeException('boom')));
         $stub->method('reset')->willReturnOnConsecutiveCalls(null);
 
         $mock = $this->createMock(BillingGateway::class);
@@ -106,6 +115,7 @@ final class MockExpectationContractsTest extends TestCase
         $stub->method('findCustomer')->willReturn('not-a-customer');
         $stub->method('reset')->willReturn(true);
         $stub->method('charge')->willReturnOnConsecutiveCalls('ok', 42);
+        $stub->method('charge')->willReturn($this->throwException(new \RuntimeException('direct-stub-invalid')));
 
         $mock = $this->createMock(BillingGateway::class);
         $mock->expects(self::once())->method('rate')->willReturn('not-a-float');

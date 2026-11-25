@@ -6,6 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-25
+
+### Fixed
+
+- `willReturnOnConsecutiveCalls()` validates wrapped `ReturnStub` values and resolvable `ReturnCallback` return types against the mocked method's declared return type while preserving `Stub\Exception` exemptions, `never` callbacks on `never` methods, and conservative handling for opaque stubs and mixed stub unions.
+- `#[TestWith]` resolves existing class, interface, trait, and enum constants (including whole-row array constants and recursive constant aliases with cycle protection) through Mago codebase metadata while preserving enum-case and backed-enum `->value` handling and leaving missing constants to Mago core.
+
 ## [0.1.1] - 2026-11-24
 
 ### Fixed

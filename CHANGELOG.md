@@ -6,6 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-11-25
+
+### Fixed
+
+- `willReturnOnConsecutiveCalls()` resolves unambiguous same-scope local `Stub` variables and alias chains (`ReturnStub`, `ReturnCallback`, `ReturnSelf`, `ReturnArgument`, `ReturnValueMap`, `ConsecutiveCalls`, and `Stub\Exception`), while staying conservative on reassigned, conditional, loop-mutated, by-reference, dynamic-scope, or helper-returned locals.
+- `willReturnOnConsecutiveCalls()` validates `ReturnSelf` against the mocked method's declared return type (including `self`, `static`, `parent`, interfaces, unions, and intersections), validates `ReturnArgument` against declared parameter types and bounds (catching partial-union, negative, and out-of-range mismatches), validates `ReturnValueMap` row return payloads, recursively checks nested `ConsecutiveCalls`, and preserves an explicit conservative boundary for mutable `ReturnReference` bindings.
+
 ## [0.1.2] - 2026-11-25
 
 ### Fixed

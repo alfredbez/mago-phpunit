@@ -12,7 +12,7 @@ use Mago\Sdk\Linter\Rule;
 
 final class PhpUnitExtension
 {
-    public const VERSION = '0.1.2';
+    public const VERSION = '0.1.3';
 
     private function __construct() {}
 

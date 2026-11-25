@@ -370,10 +370,12 @@ $stubMethodNoNamedArgs = $stubClass->hasMethod('method')
     );
 $expected[false]['tests/fixtures/MockExpectationContracts.php'] = [
     'alfredbez/phpunit/phpunit-unknown-mocked-method' => 1,
-    'alfredbez/phpunit/phpunit-incompatible-mock-return' => 17,
+    'alfredbez/phpunit/phpunit-incompatible-mock-return' => 46,
+    'mixed-assignment' => 1,
     'named-argument-not-allowed' => $stubMethodNoNamedArgs ? 1 : 0,
 ];
 $expected[true]['tests/fixtures/MockExpectationContracts.php'] = [
+    'mixed-assignment' => 1,
     'named-argument-not-allowed' => $stubMethodNoNamedArgs ? 1 : 0,
 ];
 $startsWithNonEmptyParam = str_contains(
@@ -988,10 +990,27 @@ foreach ([
     'Argument #7 of willReturnOnConsecutiveCalls() provides `int` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::charge()`, whose declared return type is `string`.' => 1,
     'Argument #8 of willReturnOnConsecutiveCalls() provides `int` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::charge()`, whose declared return type is `string`.' => 1,
     'Argument #9 of willReturnOnConsecutiveCalls() provides `int` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::charge()`, whose declared return type is `string`.' => 1,
+    'Argument #1 of willReturnOnConsecutiveCalls() provides `int` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::charge()`, whose declared return type is `string`.' => 11,
+    'Argument #1 of willReturnOnConsecutiveCalls() provides `int` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::echoText()`, whose declared return type is `string`.' => 2,
+    'Argument #1 of willReturnOnConsecutiveCalls() provides `int` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::legacyArgs()`, whose declared return type is `string`.' => 1,
+    'Argument #1 of willReturnOnConsecutiveCalls() provides `null` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::legacyArgs()`, whose declared return type is `string`.' => 0,
+    'Argument #1 of willReturnOnConsecutiveCalls() provides `null` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::charge()`, whose declared return type is `string`.' => 2,
+    'Argument #1 of willReturnOnConsecutiveCalls() provides `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::charge()`, whose declared return type is `string`.' => 4,
+    'Argument #1 of willReturnOnConsecutiveCalls() provides `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::unrelatedCustomer()`, whose declared return type is `AlfredBez\\MagoPhpunit\\Fixtures\\BillingCustomer`.' => 1,
+    'Argument #1 of willReturnOnConsecutiveCalls() provides `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway&AlfredBez\\MagoPhpunit\\Fixtures\\SecondaryBillingGateway` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway&AlfredBez\\MagoPhpunit\\Fixtures\\SecondaryBillingGateway::charge()`, whose declared return type is `string`.' => 1,
+    'Argument #1 of willReturnOnConsecutiveCalls() provides `int|string` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::pick()`, whose declared return type is `string`.' => 2,
+    'Argument #1 of willReturnOnConsecutiveCalls() provides `null|string` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::requireText()`, whose declared return type is `string`.' => 1,
+    'Argument #1 of willReturnOnConsecutiveCalls() provides `null` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::echoText()`, whose declared return type is `string`.' => 2,
+    'Argument #1 of willReturnOnConsecutiveCalls() provides `int` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::format()`, whose declared return type is `string`.' => 1,
     'ReturnStub' => 0,
     'ReturnCallback' => 0,
+    'ReturnSelf' => 0,
+    'ReturnArgument' => 0,
+    'ReturnValueMap' => 0,
+    'ReturnReference' => 0,
+    'Stub\\ConsecutiveCalls' => 0,
     'Argument #1 of willReturn() provides `PHPUnit\\Framework\\MockObject\\Stub\\Exception` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::charge()`, whose declared return type is `string`.' => 1,
-    'Method `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::abort()` has return type `never` and cannot be configured with willReturnOnConsecutiveCalls().' => 1,
+    'Method `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::abort()` has return type `never` and cannot be configured with willReturnOnConsecutiveCalls().' => 2,
     'Argument #1 of willReturn() provides `string` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::rate()`, whose declared return type is `float`.' => 1,
 ] as $needle => $count) {
     $failures += assertMessageCount('with extension', $with, 'tests/fixtures/MockExpectationContracts.php', $incompatibleReturnCode, $needle, $count);

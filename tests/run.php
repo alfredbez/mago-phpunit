@@ -323,10 +323,14 @@ $expected[true]['tests/fixtures/ExternalCrossFileProvider.php'] = [
     'alfredbez/phpunit/phpunit-data-provider' => 0,
 ];
 $expected[false]['tests/fixtures/TestWithAttributes.php'] = [
-    'alfredbez/phpunit/phpunit-data-provider' => 16,
+    'alfredbez/phpunit/phpunit-data-provider' => 24,
+    'no-value' => 1,
+    'non-existent-class-constant' => 2,
 ];
 $expected[true]['tests/fixtures/TestWithAttributes.php'] = [
     'alfredbez/phpunit/phpunit-data-provider' => 0,
+    'no-value' => 1,
+    'non-existent-class-constant' => 2,
 ];
 $expected[false]['tests/fixtures/IntersectionMocks.php'] = [
     'alfredbez/phpunit/assert-same-count' => 1,
@@ -366,7 +370,7 @@ $stubMethodNoNamedArgs = $stubClass->hasMethod('method')
     );
 $expected[false]['tests/fixtures/MockExpectationContracts.php'] = [
     'alfredbez/phpunit/phpunit-unknown-mocked-method' => 1,
-    'alfredbez/phpunit/phpunit-incompatible-mock-return' => 10,
+    'alfredbez/phpunit/phpunit-incompatible-mock-return' => 17,
     'named-argument-not-allowed' => $stubMethodNoNamedArgs ? 1 : 0,
 ];
 $expected[true]['tests/fixtures/MockExpectationContracts.php'] = [
@@ -901,6 +905,28 @@ foreach ([
     'Attribute #[TestWith] row #0 provides AlfredBez\\MagoPhpunit\\Fixtures\\TestWithUnitMode::Fast for $label of testEnumForStringTestWith(), which expects string.' => 1,
     'Attribute #[TestWith] row #0 provides int(1) for $label of testIntBackedEnumValueForStringTestWith(), which expects string.' => 1,
     'Attribute #[TestWith] row #0 provides int(1) for $modeCode of testIntBackedEnumWrongLiteralValueTestWith(), which expects int.' => 1,
+    'for testValidIntClassConstantTestWith()' => 0,
+    'for testValidStringClassConstantTestWith()' => 0,
+    'for testValidAliasClassConstantTestWith()' => 0,
+    'for testValidParentClassConstantTestWith()' => 0,
+    'for testValidInterfaceClassConstantTestWith()' => 0,
+    'for testValidTraitClassConstantTestWith()' => 0,
+    'for testValidDocNarrowedClassConstantTestWith()' => 0,
+    'for testValidEnumInUnionTestWith()' => 0,
+    'for testValidEnumClassConstantTestWith()' => 0,
+    'for testValidEnumCaseAliasConstantTestWith()' => 0,
+    'for testCyclicClassConstantTestWithIsConservative()' => 0,
+    'for testUnknownClassConstantControlTestWith()' => 0,
+    'for testValidWholeRowClassConstantTestWith()' => 0,
+    'for testMissingWholeRowClassConstantControlTestWith()' => 0,
+    'Attribute #[TestWith] row #0 provides int for $value of testInvalidWholeRowClassConstantTestWith(), which expects string.' => 1,
+    'Attribute #[TestWith] row #0 provides int(42) for $value of testInvalidIntClassConstantForStringTestWith(), which expects string.' => 1,
+    "Attribute #[TestWith] row #0 provides 'valid' for \$value of testInvalidStringClassConstantForIntTestWith(), which expects int." => 1,
+    'Attribute #[TestWith] row #0 provides int(42) for $value of testInvalidAliasClassConstantForStringTestWith(), which expects string.' => 1,
+    "Attribute #[TestWith] row #0 provides 'parent' for \$value of testInvalidParentClassConstantForIntTestWith(), which expects int." => 1,
+    "Attribute #[TestWith] row #0 provides 'iface' for \$value of testInvalidInterfaceClassConstantForIntTestWith(), which expects int." => 1,
+    'Attribute #[TestWith] row #0 provides int(7) for $value of testInvalidTraitClassConstantForStringTestWith(), which expects string.' => 1,
+    'Attribute #[TestWith] row #0 provides int(200) for $code of testInvalidEnumClassConstantForStringTestWith(), which expects string.' => 1,
 ] as $needle => $count) {
     $failures += assertMessageCount('with extension', $with, $testWithFile, $dataProvider, $needle, $count);
 }
@@ -955,7 +981,15 @@ foreach ([
     'Argument #1 of willReturn() provides `null` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::charge()`, whose declared return type is `string`.' => 1,
     'Argument #1 of willReturn() provides `string` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::findCustomer()`, whose declared return type is `AlfredBez\\MagoPhpunit\\Fixtures\\BillingCustomer|null`.' => 1,
     'Method `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::reset()` has return type `void` and cannot be configured with willReturn().' => 1,
-    'Argument #2 of willReturnOnConsecutiveCalls() provides `int` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::charge()`, whose declared return type is `string`.' => 1,
+    'Argument #2 of willReturnOnConsecutiveCalls() provides `int` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::charge()`, whose declared return type is `string`.' => 2,
+    'Argument #4 of willReturnOnConsecutiveCalls() provides `array` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::charge()`, whose declared return type is `string`.' => 1,
+    'Argument #5 of willReturnOnConsecutiveCalls() provides `int` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::charge()`, whose declared return type is `string`.' => 1,
+    'Argument #6 of willReturnOnConsecutiveCalls() provides `null` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::charge()`, whose declared return type is `string`.' => 1,
+    'Argument #7 of willReturnOnConsecutiveCalls() provides `int` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::charge()`, whose declared return type is `string`.' => 1,
+    'Argument #8 of willReturnOnConsecutiveCalls() provides `int` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::charge()`, whose declared return type is `string`.' => 1,
+    'Argument #9 of willReturnOnConsecutiveCalls() provides `int` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::charge()`, whose declared return type is `string`.' => 1,
+    'ReturnStub' => 0,
+    'ReturnCallback' => 0,
     'Argument #1 of willReturn() provides `PHPUnit\\Framework\\MockObject\\Stub\\Exception` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::charge()`, whose declared return type is `string`.' => 1,
     'Method `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::abort()` has return type `never` and cannot be configured with willReturnOnConsecutiveCalls().' => 1,
     'Argument #1 of willReturn() provides `string` for `AlfredBez\\MagoPhpunit\\Fixtures\\BillingGateway::rate()`, whose declared return type is `float`.' => 1,

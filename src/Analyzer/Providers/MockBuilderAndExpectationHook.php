@@ -6,20 +6,29 @@ namespace AlfredBez\MagoPhpunit\Analyzer\Providers;
 
 use Mago\Sdk\Analyzer\FileAnalysisRequirement;
 use Mago\Sdk\Analyzer\Metadata\ClassLikeMetadata;
+use Mago\Sdk\Analyzer\Metadata\FunctionLikeMetadata;
 use Mago\Sdk\Analyzer\Metadata\MemberIdentifier;
 use Mago\Sdk\Analyzer\MethodCallAnalysisHook;
 use Mago\Sdk\Analyzer\MethodTarget;
 use Mago\Sdk\Analyzer\NodeAnalysisContext;
 use Mago\Sdk\Analyzer\Type;
+use Mago\Sdk\Analyzer\Type\AliasType;
+use Mago\Sdk\Analyzer\Type\CallableType;
+use Mago\Sdk\Analyzer\Type\ConditionalType;
+use Mago\Sdk\Analyzer\Type\DerivedType;
+use Mago\Sdk\Analyzer\Type\GenericParameterType;
 use Mago\Sdk\Analyzer\Type\KeyedArrayType;
 use Mago\Sdk\Analyzer\Type\ListType;
 use Mago\Sdk\Analyzer\Type\MixedType;
 use Mago\Sdk\Analyzer\Type\NamedObjectType;
+use Mago\Sdk\Analyzer\Type\ReferenceType;
 use Mago\Sdk\Analyzer\Type\ScalarType;
 use Mago\Sdk\Analyzer\Type\ScalarTypeKind;
 use Mago\Sdk\Analyzer\Type\SimpleAtomicType;
 use Mago\Sdk\Analyzer\Type\SimpleAtomicTypeKind;
-use Mago\Sdk\Analyzer\Type\TemplateParameter;
+use Mago\Sdk\Analyzer\Type\StringLiteralKind;
+use Mago\Sdk\Analyzer\Type\StringType;
+use Mago\Sdk\Analyzer\Type\VariableType;
 use Mago\Sdk\Reporting\Issue;
 use Mago\Sdk\Reporting\Level;
 use Mago\Sdk\SourceLocation;
@@ -41,6 +50,8 @@ final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
 
     private const STUB_INTERFACE = 'PHPUnit\\Framework\\MockObject\\Stub\\Stub';
     private const EXCEPTION_STUB = 'PHPUnit\\Framework\\MockObject\\Stub\\Exception';
+    private const RETURN_STUB = 'phpunit\\framework\\mockobject\\stub\\returnstub';
+    private const RETURN_CALLBACK = 'phpunit\\framework\\mockobject\\stub\\returncallback';
 
     private const STUB_IMPLEMENTATIONS = [
         'phpunit\\framework\\mockobject\\stub\\stub' => true,
@@ -216,7 +227,7 @@ final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
         $isConsecutive = $called === 'willreturnonconsecutivecalls';
 
         if (self::isNever($declaredReturn)) {
-            if ($isConsecutive && self::allArgumentsThrow($context)) {
+            if ($isConsecutive && $this->allArgumentsThrow($context)) {
                 return;
             }
             $context->report(
@@ -260,18 +271,33 @@ final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
             }
 
             $callArg = $call->arguments[$index] ?? null;
-            $candidateTypes = $callArg !== null && $callArg->unpacked
-                ? self::extractUnpackedArgumentTypes($argType)
-                : [$argType];
+            $candidates = $this->extractCallCandidates(
+                $context,
+                $argType,
+                $callArg?->value,
+                $callArg !== null && $callArg->unpacked,
+            );
 
-            foreach ($candidateTypes as $candidateType) {
+            foreach ($candidates as $candidate) {
+                $candidateType = $candidate['type'];
                 if (self::containsMixedOrTemplate($candidateType)) {
                     continue;
                 }
 
-                // ConsecutiveCalls::invoke() unwraps any PHPUnit Stub (such as throwException()).
-                if ($isConsecutive && self::isStubObject($context, $candidateType)) {
-                    continue;
+                // ConsecutiveCalls::invoke() unwraps any PHPUnit Stub at call time.
+                if ($isConsecutive && self::containsStubObject($context, $candidateType)) {
+                    if (!self::isStubObject($context, $candidateType)) {
+                        continue;
+                    }
+                    $resolvedPayload = $this->resolveConsecutiveStubPayload($context, $candidateType, $candidate['node']);
+                    if (
+                        $resolvedPayload === null
+                        || self::isNever($resolvedPayload)
+                        || self::containsMixedOrTemplate($resolvedPayload)
+                    ) {
+                        continue;
+                    }
+                    $candidateType = $resolvedPayload;
                 }
 
                 if ($context->types->isContainedBy($candidateType, $expected)) {
@@ -489,7 +515,56 @@ final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
         return $types;
     }
 
-    private static function allArgumentsThrow(NodeAnalysisContext $context): bool
+    /**
+     * @return list<array{type: Type, node: ?Node}>
+     */
+    private function extractCallCandidates(
+        NodeAnalysisContext $context,
+        Type $argType,
+        ?Node $argValueNode,
+        bool $unpacked,
+    ): array {
+        if (!$unpacked) {
+            return [[
+                'type' => $argType,
+                'node' => $argValueNode,
+            ]];
+        }
+
+        if ($argValueNode !== null) {
+            $literalNodes = $this->extractUnpackedLiteralArrayNodes($context->source, $argValueNode);
+            if ($literalNodes !== []) {
+                $candidates = [];
+                $allTyped = true;
+                foreach ($literalNodes as $node) {
+                    $nodeType = $this->expressionType($context, $node);
+                    if ($nodeType === null) {
+                        $allTyped = false;
+                        break;
+                    }
+                    $candidates[] = [
+                        'type' => $nodeType,
+                        'node' => $node,
+                    ];
+                }
+                if ($allTyped) {
+                    return $candidates;
+                }
+            }
+        }
+
+        $candidates = [];
+        foreach (self::extractUnpackedArgumentTypes($argType) as $candidateType) {
+            $candidates[] = [
+                'type' => $candidateType,
+                'node' => null,
+            ];
+        }
+
+        return $candidates;
+    }
+
+    private function allArgumentsThrow(NodeAnalysisContext $context): bool
     {
         if ($context->argumentTypes === []) {
             return false;
@@ -501,16 +576,28 @@ final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
                 return false;
             }
             $callArg = $call->arguments[$index] ?? null;
-            $candidateTypes = $callArg !== null && $callArg->unpacked
-                ? self::extractUnpackedArgumentTypes($argType)
-                : [$argType];
-            if ($candidateTypes === []) {
+            $candidates = $this->extractCallCandidates(
+                $context,
+                $argType,
+                $callArg?->value,
+                $callArg !== null && $callArg->unpacked,
+            );
+            if ($candidates === []) {
                 return false;
             }
-            foreach ($candidateTypes as $candidateType) {
-                if (!self::isThrowingStub($context, $candidateType)) {
-                    return false;
+            foreach ($candidates as $candidate) {
+                $candidateType = $candidate['type'];
+                if (self::isThrowingStub($context, $candidateType)) {
+                    continue;
                 }
+                if (self::isExactStubClass($candidateType, self::RETURN_CALLBACK)) {
+                    $payload = $this->resolveConsecutiveStubPayload($context, $candidateType, $candidate['node']);
+                    if ($payload !== null && self::isNever($payload)) {
+                        continue;
+                    }
+                }
+
+                return false;
             }
         }
 
@@ -557,6 +644,413 @@ final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
         return $context->types->isContainedBy($type, Type::namedObject(self::STUB_INTERFACE));
     }
 
+    private static function containsStubObject(NodeAnalysisContext $context, Type $type): bool
+    {
+        if ($type->atomicTypes === []) {
+            return false;
+        }
+
+        $stubInterface = Type::namedObject(self::STUB_INTERFACE);
+        foreach ($type->atomicTypes as $atomic) {
+            if ($atomic instanceof NamedObjectType && isset(self::STUB_IMPLEMENTATIONS[strtolower($atomic->name)])) {
+                return true;
+            }
+            if ($context->types->isContainedBy(Type::fromAtomic($atomic), $stubInterface)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static function isExactStubClass(Type $type, string $expectedLowerName): bool
+    {
+        if (count($type->atomicTypes) !== 1) {
+            return false;
+        }
+
+        $atomic = $type->atomicTypes[0];
+
+        return $atomic instanceof NamedObjectType && strtolower($atomic->name) === $expectedLowerName;
+    }
+
+    private function resolveConsecutiveStubPayload(NodeAnalysisContext $context, Type $stubType, ?Node $stubNode): ?Type
+    {
+        if (self::isThrowingStub($context, $stubType)) {
+            return null;
+        }
+
+        if (self::isExactStubClass($stubType, self::RETURN_STUB)) {
+            $valueNode = $this->extractStubArgumentNode($context, $stubNode, 'value', 'returnvalue');
+            if ($valueNode === null) {
+                return null;
+            }
+
+            return $this->expressionType($context, $valueNode);
+        }
+
+        if (self::isExactStubClass($stubType, self::RETURN_CALLBACK)) {
+            $callbackNode = $this->extractStubArgumentNode($context, $stubNode, 'callback', 'returncallback');
+            if ($callbackNode === null) {
+                return null;
+            }
+
+            $callbackType = $this->expressionType($context, $callbackNode);
+            if ($callbackType === null) {
+                return null;
+            }
+
+            return $this->resolveCallbackReturnType($context, $callbackType);
+        }
+
+        return null;
+    }
+
+    private function extractStubArgumentNode(
+        NodeAnalysisContext $context,
+        ?Node $stubNode,
+        string $namedParameter,
+        string $helperMethodName,
+    ): ?Node {
+        $source = $context->source;
+        $node = $this->unwrap($source, $stubNode);
+        if ($node === null) {
+            return null;
+        }
+
+        if ($node->kind === NodeKind::Instantiation) {
+            foreach ($source->getChildren($node) as $child) {
+                if ($child->kind === NodeKind::ArgumentList) {
+                    return $this->firstOrNamedArgumentValue($source, $child, $namedParameter);
+                }
+            }
+
+            return null;
+        }
+
+        if ($node->kind === NodeKind::MethodCall || $node->kind === NodeKind::StaticMethodCall) {
+            $call = CallExpression::fromNode($source, $node);
+            if (strtolower($call->getName($source) ?? '') !== $helperMethodName) {
+                return null;
+            }
+            if (!$this->isPhpUnitTestCaseHelperCall($context, $node, $helperMethodName)) {
+                return null;
+            }
+
+            foreach ($call->arguments as $arg) {
+                if ($arg->name === $namedParameter && !$arg->unpacked) {
+                    return $arg->value;
+                }
+            }
+
+            $first = $call->arguments[0] ?? null;
+            if ($first !== null && $first->name === null && !$first->unpacked) {
+                return $first->value;
+            }
+        }
+
+        return null;
+    }
+
+    private function isPhpUnitTestCaseHelperCall(NodeAnalysisContext $context, Node $callNode, string $helperMethodName): bool
+    {
+        $source = $context->source;
+        $rawTarget = $source->getChildren($callNode)[0] ?? null;
+        if ($rawTarget === null) {
+            return false;
+        }
+
+        $classNames = [];
+        if ($callNode->kind === NodeKind::MethodCall) {
+            $receiverType = $this->expressionType($context, $rawTarget);
+            if ($receiverType === null || $receiverType->atomicTypes === []) {
+                return false;
+            }
+            foreach ($receiverType->atomicTypes as $atomic) {
+                if (!$atomic instanceof NamedObjectType) {
+                    return false;
+                }
+                $classNames[] = $atomic->name;
+            }
+        } else {
+            $target = $this->unwrap($source, $rawTarget);
+            if ($target === null) {
+                return false;
+            }
+            $text = strtolower(trim($source->getText($target)));
+            if ($text === 'self' || $text === 'static' || $text === 'parent') {
+                $enclosing = $this->enclosingClassName($source, $callNode);
+                if ($enclosing === null) {
+                    return false;
+                }
+                if ($text === 'parent') {
+                    $meta = $context->codebase->getClass($enclosing);
+                    if ($meta === null || $meta->directParentClass === null) {
+                        return false;
+                    }
+                    $classNames[] = $meta->directParentClass;
+                } else {
+                    $classNames[] = $enclosing;
+                }
+            } else {
+                $resolved = $source->getResolvedName($target)?->name ?? $source->getText($target);
+                $classNames[] = ltrim($resolved, '\\');
+            }
+        }
+
+        if ($classNames === []) {
+            return false;
+        }
+
+        foreach ($classNames as $className) {
+            $declaring = $context->codebase->getDeclaringMethod($className, $helperMethodName);
+            if ($declaring === null || strtolower(ltrim($declaring->identifier->class ?? '', '\\')) !== 'phpunit\\framework\\testcase') {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function enclosingClassName(SourceFile $source, Node $node): ?string
+    {
+        $parent = $source->getParent($node);
+        while ($parent !== null) {
+            if ($parent->kind === NodeKind::Class_) {
+                foreach ($source->getChildren($parent) as $child) {
+                    if ($child->kind === NodeKind::LocalIdentifier) {
+                        return $source->getResolvedName($child)?->name ?? $source->getText($child);
+                    }
+                }
+            }
+            $parent = $source->getParent($parent);
+        }
+
+        return null;
+    }
+
+    private function firstOrNamedArgumentValue(SourceFile $source, Node $argumentList, string $namedParameter): ?Node
+    {
+        $positionalFirst = null;
+        $index = 0;
+
+        foreach ($source->getChildren($argumentList) as $argument) {
+            $variant = $source->getChildren($argument)[0] ?? null;
+            if ($variant === null) {
+                continue;
+            }
+
+            $parts = $source->getChildren($variant);
+            $named = $variant->kind === NodeKind::NamedArgument;
+            $value = $parts[$named ? 1 : 0] ?? null;
+            if ($value === null) {
+                continue;
+            }
+
+            $unpacked = str_starts_with($source->getText($variant), '...');
+            if ($named) {
+                if (!$unpacked && $source->getText($parts[0]) === $namedParameter) {
+                    return $value;
+                }
+            } elseif ($index === 0 && !$unpacked) {
+                $positionalFirst = $value;
+            }
+
+            ++$index;
+        }
+
+        return $positionalFirst;
+    }
+
+    private function expressionType(NodeAnalysisContext $context, Node $node): ?Type
+    {
+        $type = $context->analysis->getExpressionType($node);
+        if ($type instanceof Type) {
+            return $type;
+        }
+
+        $unwrapped = $this->unwrap($context->source, $node);
+        if ($unwrapped !== null && $unwrapped !== $node) {
+            return $context->analysis->getExpressionType($unwrapped);
+        }
+
+        return null;
+    }
+
+    private function resolveCallbackReturnType(NodeAnalysisContext $context, Type $callbackType): ?Type
+    {
+        if ($callbackType->atomicTypes === []) {
+            return null;
+        }
+
+        $returnTypes = [];
+        foreach ($callbackType->atomicTypes as $atomic) {
+            $resolved = $this->resolveAtomicCallbackReturnType($context, $atomic);
+            if ($resolved === null) {
+                return null;
+            }
+            $returnTypes[] = self::isVoid($resolved) ? Type::null() : $resolved;
+        }
+
+        if ($returnTypes === []) {
+            return null;
+        }
+
+        $combined = $returnTypes[0];
+        for ($i = 1, $total = count($returnTypes); $i < $total; ++$i) {
+            $combined = Type::union($combined, $returnTypes[$i]);
+        }
+
+        return $combined;
+    }
+
+    private function resolveAtomicCallbackReturnType(NodeAnalysisContext $context, object $atomic): ?Type
+    {
+        if ($atomic instanceof CallableType) {
+            $returnType = $atomic->signature?->returnType;
+            if ($returnType instanceof Type && !self::containsMixedOrTemplate($returnType)) {
+                return $returnType;
+            }
+
+            $identifier = $atomic->alias ?? $atomic->signature?->source;
+            if ($identifier !== null) {
+                return self::functionLikeReturnType($context->codebase->getFunctionLike($identifier));
+            }
+
+            return null;
+        }
+
+        if (
+            $atomic instanceof ScalarType
+            && $atomic->refinement instanceof StringType
+            && $atomic->refinement->literalKind === StringLiteralKind::Value
+            && $atomic->refinement->literalValue !== null
+        ) {
+            $functionName = ltrim($atomic->refinement->literalValue, '\\');
+            if ($functionName === '' || str_contains($functionName, '::')) {
+                return null;
+            }
+
+            return self::functionLikeReturnType($context->codebase->getFunction($functionName));
+        }
+
+        if ($atomic instanceof ListType || $atomic instanceof KeyedArrayType) {
+            return $this->resolveArrayCallableReturnType($context, $atomic);
+        }
+
+        return null;
+    }
+
+    private static function functionLikeReturnType(?FunctionLikeMetadata $fnMeta): ?Type
+    {
+        if ($fnMeta === null) {
+            return null;
+        }
+
+        $returnType = $fnMeta->returnType?->type;
+        if ($returnType instanceof Type && !self::containsMixedOrTemplate($returnType)) {
+            return $returnType;
+        }
+
+        $declared = $fnMeta->declaredReturnType?->type;
+        if ($declared instanceof Type && !self::containsMixedOrTemplate($declared)) {
+            return $declared;
+        }
+
+        return null;
+    }
+
+    private function resolveArrayCallableReturnType(NodeAnalysisContext $context, ListType|KeyedArrayType $atomic): ?Type
+    {
+        $elements = [];
+        if ($atomic instanceof ListType) {
+            if ($atomic->knownElements === null || count($atomic->knownElements) !== 2) {
+                return null;
+            }
+            foreach ($atomic->knownElements as $element) {
+                if ($element->optional) {
+                    return null;
+                }
+                $elements[] = $element->type;
+            }
+        } else {
+            if ($atomic->knownItems === null || count($atomic->knownItems) !== 2) {
+                return null;
+            }
+            foreach ($atomic->knownItems as $item) {
+                if ($item->optional) {
+                    return null;
+                }
+                $elements[] = $item->type;
+            }
+        }
+
+        if (count($elements) !== 2) {
+            return null;
+        }
+
+        $methodName = $elements[1]->getLiteralString();
+        if ($methodName === null || $methodName === '') {
+            return null;
+        }
+
+        $targetType = $elements[0];
+        $className = null;
+        if (count($targetType->atomicTypes) === 1 && $targetType->atomicTypes[0] instanceof NamedObjectType) {
+            $className = $targetType->atomicTypes[0]->name;
+        } else {
+            $className = $targetType->getLiteralClassString() ?? $targetType->getLiteralString();
+        }
+
+        if ($className === null || $className === '') {
+            return null;
+        }
+
+        $classMeta = $context->codebase->getClassLike($className);
+        if (!$classMeta instanceof ClassLikeMetadata || $classMeta->hasIncompleteHierarchy()) {
+            return null;
+        }
+
+        $methodMeta = $context->codebase->getDeclaringMethod($className, $methodName);
+
+        return self::functionLikeReturnType($methodMeta);
+    }
+
+    /**
+     * @return list<Node>
+     */
+    private function extractUnpackedLiteralArrayNodes(SourceFile $source, Node $node): array
+    {
+        $arrayNode = $this->unwrap($source, $node);
+        if ($arrayNode === null || ($arrayNode->kind !== NodeKind::Array && $arrayNode->kind !== NodeKind::LegacyArray)) {
+            return [];
+        }
+
+        $nodes = [];
+        foreach ($source->getChildren($arrayNode) as $element) {
+            if ($element->kind !== NodeKind::ArrayElement) {
+                continue;
+            }
+            $variant = $source->getChildren($element)[0] ?? null;
+            if ($variant === null) {
+                return [];
+            }
+            if ($variant->kind === NodeKind::ValueArrayElement) {
+                $value = $source->getChildren($variant)[0] ?? null;
+            } elseif ($variant->kind === NodeKind::KeyValueArrayElement) {
+                $value = $source->getChildren($variant)[1] ?? null;
+            } else {
+                return [];
+            }
+            if ($value === null) {
+                return [];
+            }
+            $nodes[] = $value;
+        }
+
+        return $nodes;
+    }
+
     private static function isVoid(Type $type): bool
     {
         if (count($type->atomicTypes) !== 1) {
@@ -586,14 +1080,8 @@ final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
         }
 
         foreach ($type->atomicTypes as $atomic) {
-            if ($atomic instanceof MixedType || $atomic instanceof TemplateParameter) {
+            if (self::isUncheckableAtomic($atomic)) {
                 return false;
-            }
-            if ($atomic instanceof NamedObjectType) {
-                $lower = strtolower($atomic->name);
-                if ($lower === 'self' || $lower === 'static' || $lower === 'parent') {
-                    return false;
-                }
             }
         }
 
@@ -607,7 +1095,31 @@ final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
         }
 
         foreach ($type->atomicTypes as $atomic) {
-            if ($atomic instanceof MixedType || $atomic instanceof TemplateParameter) {
+            if (self::isUncheckableAtomic($atomic)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static function isUncheckableAtomic(object $atomic): bool
+    {
+        if (
+            $atomic instanceof MixedType
+            || $atomic instanceof GenericParameterType
+            || $atomic instanceof ConditionalType
+            || $atomic instanceof DerivedType
+            || $atomic instanceof ReferenceType
+            || $atomic instanceof AliasType
+            || $atomic instanceof VariableType
+        ) {
+            return true;
+        }
+
+        if ($atomic instanceof NamedObjectType) {
+            $lower = strtolower($atomic->name);
+            if ($lower === 'self' || $lower === 'static' || $lower === 'parent') {
                 return true;
             }
         }

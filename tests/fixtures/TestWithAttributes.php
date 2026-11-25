@@ -19,11 +19,44 @@ enum TestWithStringMode: string
 {
     case Active = 'active';
     case Paused = 'paused';
+
+    public const DEFAULT_CODE = 200;
+    public const DEFAULT_CASE = self::Active;
 }
 
 enum TestWithIntMode: int
 {
     case One = 1;
+}
+
+interface TestWithInterfaceConstants
+{
+    public const IFACE_TEXT = 'iface';
+}
+
+trait TestWithTraitConstants
+{
+    public const TRAIT_CODE = 7;
+}
+
+class TestWithParentConstants
+{
+    public const PARENT_TEXT = 'parent';
+}
+
+final class ExistingProviderConstants extends TestWithParentConstants implements TestWithInterfaceConstants
+{
+    use TestWithTraitConstants;
+
+    public const int ANSWER = 42;
+    public const string TEXT = 'valid';
+    public const ALIAS = self::ANSWER;
+    /** @var positive-int */
+    public const EXPR_POSITIVE = 10 + 5;
+    public const CYCLE_A = self::CYCLE_B;
+    public const CYCLE_B = self::CYCLE_A;
+    public const array VALID_ROW = ['valid'];
+    public const array INVALID_ROW = [42];
 }
 
 final class TestWithAttributesTest extends TestCase
@@ -113,6 +146,117 @@ final class TestWithAttributesTest extends TestCase
 
     #[TestWith([TestWithIntMode::One->value])]
     public function testIntBackedEnumValueForStringTestWith(string $label): void
+    {
+    }
+
+    #[TestWith([ExistingProviderConstants::ANSWER])]
+    public function testValidIntClassConstantTestWith(int $value): void
+    {
+    }
+
+    #[TestWith([ExistingProviderConstants::TEXT])]
+    public function testValidStringClassConstantTestWith(string $value): void
+    {
+    }
+
+    #[TestWith([ExistingProviderConstants::ALIAS])]
+    public function testValidAliasClassConstantTestWith(int $value): void
+    {
+    }
+
+    #[TestWith([ExistingProviderConstants::PARENT_TEXT])]
+    public function testValidParentClassConstantTestWith(string $value): void
+    {
+    }
+
+    #[TestWith([ExistingProviderConstants::IFACE_TEXT])]
+    public function testValidInterfaceClassConstantTestWith(string $value): void
+    {
+    }
+
+    #[TestWith([ExistingProviderConstants::TRAIT_CODE])]
+    public function testValidTraitClassConstantTestWith(int $value): void
+    {
+    }
+
+    /** @param positive-int $value */
+    #[TestWith([ExistingProviderConstants::EXPR_POSITIVE])]
+    public function testValidDocNarrowedClassConstantTestWith(int $value): void
+    {
+    }
+
+    #[TestWith([TestWithUnitMode::Fast])]
+    public function testValidEnumInUnionTestWith(TestWithUnitMode|string $mode): void
+    {
+    }
+
+    #[TestWith([TestWithStringMode::DEFAULT_CODE])]
+    public function testValidEnumClassConstantTestWith(int $code): void
+    {
+    }
+
+    #[TestWith([TestWithStringMode::DEFAULT_CASE])]
+    public function testValidEnumCaseAliasConstantTestWith(TestWithStringMode $mode): void
+    {
+    }
+
+    #[TestWith([ExistingProviderConstants::CYCLE_A])]
+    public function testCyclicClassConstantTestWithIsConservative(string $value): void
+    {
+    }
+
+    #[TestWith([ExistingProviderConstants::ANSWER])]
+    public function testInvalidIntClassConstantForStringTestWith(string $value): void
+    {
+    }
+
+    #[TestWith([ExistingProviderConstants::TEXT])]
+    public function testInvalidStringClassConstantForIntTestWith(int $value): void
+    {
+    }
+
+    #[TestWith([ExistingProviderConstants::ALIAS])]
+    public function testInvalidAliasClassConstantForStringTestWith(string $value): void
+    {
+    }
+
+    #[TestWith([ExistingProviderConstants::PARENT_TEXT])]
+    public function testInvalidParentClassConstantForIntTestWith(int $value): void
+    {
+    }
+
+    #[TestWith([ExistingProviderConstants::IFACE_TEXT])]
+    public function testInvalidInterfaceClassConstantForIntTestWith(int $value): void
+    {
+    }
+
+    #[TestWith([ExistingProviderConstants::TRAIT_CODE])]
+    public function testInvalidTraitClassConstantForStringTestWith(string $value): void
+    {
+    }
+
+    #[TestWith([TestWithStringMode::DEFAULT_CODE])]
+    public function testInvalidEnumClassConstantForStringTestWith(string $code): void
+    {
+    }
+
+    #[TestWith([ExistingProviderConstants::DOES_NOT_EXIST])]
+    public function testUnknownClassConstantControlTestWith(string $value): void
+    {
+    }
+
+    #[TestWith(ExistingProviderConstants::VALID_ROW)]
+    public function testValidWholeRowClassConstantTestWith(string $value): void
+    {
+    }
+
+    #[TestWith(ExistingProviderConstants::INVALID_ROW)]
+    public function testInvalidWholeRowClassConstantTestWith(string $value): void
+    {
+    }
+
+    #[TestWith(ExistingProviderConstants::MISSING_ROW)]
+    public function testMissingWholeRowClassConstantControlTestWith(string $value): void
     {
     }
 }

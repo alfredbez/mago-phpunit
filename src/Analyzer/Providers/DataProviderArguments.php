@@ -14,6 +14,7 @@ use Mago\Sdk\Analyzer\FileAnalysis;
 use Mago\Sdk\Analyzer\FileAnalysisRequirement;
 use Mago\Sdk\Analyzer\LifecycleContext;
 use Mago\Sdk\Analyzer\Metadata\AttributeMetadata;
+use Mago\Sdk\Analyzer\Metadata\ClassConstantMetadata;
 use Mago\Sdk\Analyzer\Metadata\ClassLikeKind;
 use Mago\Sdk\Analyzer\Metadata\ClassLikeMetadata;
 use Mago\Sdk\Analyzer\Metadata\EnumCaseMetadata;
@@ -1781,6 +1782,12 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
         array &$checkedDepOffsets,
         ?array $keyOrder = null,
     ): void {
+        $resolvedRowType = $this->resolveUnpopulatedType($context, $type);
+        if ($resolvedRowType === null) {
+            return;
+        }
+        $type = $resolvedRowType;
+
         $named = $this->namedArguments($type);
         if ($named !== null) {
             if (!PhpUnitVersion::supportsNamedProviderArguments($context->codebase)) {
@@ -2077,7 +2084,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
             return;
         }
         $resolvedArgumentType = $this->resolveUnpopulatedType($context, $argumentType);
-        if ($resolvedArgumentType === null) {
+        if ($resolvedArgumentType === null || !$this->isCheckableType($resolvedArgumentType)) {
             return;
         }
         $argumentType = $resolvedArgumentType;
@@ -2101,9 +2108,11 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
 
     /**
      * Resolves unpopulated ReferenceType / DerivedType nodes produced by PHP attribute
-     * metadata (such as `Enum::Case` and `BackedEnum::Case->value` in `#[TestWith]`).
+     * metadata (such as class constants, `Enum::Case`, and `BackedEnum::Case->value` in `#[TestWith]`).
+     *
+     * @param array<string, true> $visited
      */
-    private function resolveUnpopulatedType(LifecycleContext $context, Type $type): ?Type
+    private function resolveUnpopulatedType(LifecycleContext $context, Type $type, array $visited = []): ?Type
     {
         $needsResolution = false;
         foreach ($type->atomicTypes as $atomic) {
@@ -2119,7 +2128,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
         $resolvedAtomics = [];
         foreach ($type->atomicTypes as $atomic) {
             if ($atomic instanceof ReferenceType) {
-                $resolved = $this->resolveReferenceAtomic($context, $atomic);
+                $resolved = $this->resolveReferenceAtomic($context, $atomic, $visited);
                 if ($resolved === null) {
                     return null;
                 }
@@ -2130,7 +2139,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
             }
 
             if ($atomic instanceof DerivedType) {
-                $resolved = $this->resolveDerivedAtomic($context, $atomic);
+                $resolved = $this->resolveDerivedAtomic($context, $atomic, $visited);
                 if ($resolved === null) {
                     return null;
                 }
@@ -2164,15 +2173,19 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
             if ($atomic->refinement instanceof StringType && $atomic->refinement->literalValue !== null) {
                 return Type::literalString($atomic->refinement->literalValue);
             }
+            if (is_bool($atomic->refinement)) {
+                return $atomic->refinement ? Type::true() : Type::false();
+            }
         }
 
         return Type::fromAtomic($atomic);
     }
 
     /**
+     * @param array<string, true> $visited
      * @return list<\Mago\Sdk\Analyzer\Type\AtomicType>|null
      */
-    private function resolveReferenceAtomic(LifecycleContext $context, ReferenceType $reference): ?array
+    private function resolveReferenceAtomic(LifecycleContext $context, ReferenceType $reference, array $visited = []): ?array
     {
         if (
             $reference->kind !== ReferenceTypeKind::Member
@@ -2195,19 +2208,88 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
             }
         }
 
-        return null;
+        $constantMeta = $context->codebase->getClassConstant($meta->originalName, $reference->member);
+        if (!$constantMeta instanceof ClassConstantMetadata) {
+            return null;
+        }
+
+        $visitKey = strtolower($meta->originalName) . '::' . $reference->member;
+        if (isset($visited[$visitKey]) || count($visited) >= 16) {
+            return null;
+        }
+        $visited[$visitKey] = true;
+
+        $constantType = $this->resolveClassConstantType($context, $constantMeta, $visited);
+        if ($constantType === null || $constantType->atomicTypes === []) {
+            return null;
+        }
+
+        return $constantType->atomicTypes;
     }
 
     /**
+     * @param array<string, true> $visited
+     */
+    private function resolveClassConstantType(
+        LifecycleContext $context,
+        ClassConstantMetadata $constantMeta,
+        array $visited,
+    ): ?Type {
+        $inferred = $this->resolveCheckableConstantCandidate($context, $constantMeta->inferredType, $visited);
+        $annotated = $this->resolveCheckableConstantCandidate($context, $constantMeta->type?->type, $visited);
+
+        if ($inferred !== null && $annotated !== null) {
+            if ($context->types->isContainedBy($inferred, $annotated)) {
+                return $inferred;
+            }
+            if ($context->types->isContainedBy($annotated, $inferred)) {
+                return $annotated;
+            }
+
+            return $inferred;
+        }
+
+        if ($inferred !== null) {
+            return $inferred;
+        }
+        if ($annotated !== null) {
+            return $annotated;
+        }
+
+        return $this->resolveCheckableConstantCandidate($context, $constantMeta->declaredType?->type, $visited);
+    }
+
+    /**
+     * @param array<string, true> $visited
+     */
+    private function resolveCheckableConstantCandidate(
+        LifecycleContext $context,
+        ?Type $candidate,
+        array $visited,
+    ): ?Type {
+        if (!$candidate instanceof Type || !$this->isCheckableType($candidate)) {
+            return null;
+        }
+
+        $resolved = $this->resolveUnpopulatedType($context, $candidate, $visited);
+        if ($resolved === null || !$this->isCheckableType($resolved)) {
+            return null;
+        }
+
+        return $resolved;
+    }
+
+    /**
+     * @param array<string, true> $visited
      * @return list<\Mago\Sdk\Analyzer\Type\AtomicType>|null
      */
-    private function resolveDerivedAtomic(LifecycleContext $context, DerivedType $derived): ?array
+    private function resolveDerivedAtomic(LifecycleContext $context, DerivedType $derived, array $visited = []): ?array
     {
         if ($derived->kind !== DerivedTypeKind::ValueOf || !isset($derived->operands[0])) {
             return null;
         }
 
-        $operand = $this->resolveUnpopulatedType($context, $derived->operands[0]);
+        $operand = $this->resolveUnpopulatedType($context, $derived->operands[0], $visited);
         if ($operand === null || $operand->atomicTypes === []) {
             return null;
         }

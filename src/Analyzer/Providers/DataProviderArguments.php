@@ -111,43 +111,12 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
     /** @var array<string, list<array{type: Type, span: Span, label: string, keyOrder: ?list<string>}>> */
     private array $lastProviderRowsInFile = [];
 
-    /** @var array<string, array<string, array{file: string, label: string, rows: list<array{type: Type, span: Span, label: string, keyOrder: ?list<string>}>}>> */
-    private array $providerRowsByMethod = [];
-
-    /**
-     * @var list<array{
-     *     testFile: string,
-     *     testLabel: string,
-     *     providerClass: string,
-     *     providerMethod: string,
-     *     validateCount: bool,
-     *     schema: array{
-     *         required: int,
-     *         accepted: int,
-     *         variadic: bool,
-     *         names: list<string>,
-     *         requiredNames: list<string>,
-     *         positional: list<array{name: string, type: ?Type}>,
-     *         named: array<string, ?Type>,
-     *         variadicParameter: ?array{name: string, type: ?Type},
-     *         dependencies: int,
-     *     },
-     *     dependencies: list<array{class: ?string, method: ?string, span: Span, external: bool}>,
-     * }>
-     */
-    private array $pendingExternalProviders = [];
-
-    private bool $sawAnalyzeCall = false;
-
     public function reset(): void
     {
         $this->lastMethodsSource = null;
         $this->lastMethodsInFile = [];
         $this->lastRowsSource = null;
         $this->lastProviderRowsInFile = [];
-        $this->providerRowsByMethod = [];
-        $this->pendingExternalProviders = [];
-        $this->sawAnalyzeCall = false;
     }
 
     public function getTargets(): array
@@ -168,7 +137,6 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
 
     public function analyze(NodeAnalysisContext $context): void
     {
-        $this->sawAnalyzeCall = true;
         $contents = $context->source->contents;
         if (
             stripos($contents, 'dataprovider') === false
@@ -346,17 +314,6 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                         $providerSource = $fullSource;
                         $providerNode = $this->locateMethod($context, $fileMethods, $provider['class'], $provider['method']);
                     }
-                    if ($providerNode === null && $provider['external']) {
-                        $this->pendingExternalProviders[] = [
-                            'testFile' => $context->analysis->file,
-                            'testLabel' => $testLabel,
-                            'providerClass' => $provider['class'],
-                            'providerMethod' => $provider['method'],
-                            'validateCount' => $provider['validateCount'],
-                            'schema' => $schema,
-                            'dependencies' => $effectiveDependencies,
-                        ];
-                    }
                 }
 
                 if ($providerNode === null) {
@@ -365,13 +322,6 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
 
                 $providerLabel = $provider['node'] !== null ? 'closure' : $this->methodLabel($providerSource, $providerNode);
                 $rows = $this->extractProviderRows($context->analysis, $providerSource, $providerNode, $needsKeyOrder);
-                if ($provider['node'] === null) {
-                    $this->providerRowsByMethod[$providerClassKey][$providerMethodKey] = [
-                        'file' => $context->analysis->file,
-                        'label' => $providerLabel,
-                        'rows' => $rows,
-                    ];
-                }
                 foreach ($rows as $row) {
                     $this->checkRow(
                         $context,
@@ -416,82 +366,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
     {
         $needsKeyOrder = !PhpUnitVersion::supportsNamedProviderArguments($context->codebase);
 
-        if ($this->sawAnalyzeCall) {
-            if ($this->pendingExternalProviders === []) {
-                return;
-            }
-
-            $pending = $this->pendingExternalProviders;
-            $this->pendingExternalProviders = [];
-
-            $uncachedQueries = [];
-            foreach ($pending as $entry) {
-                $classKey = strtolower($entry['providerClass']);
-                $methodKey = strtolower($entry['providerMethod']);
-                if (!isset($this->providerRowsByMethod[$classKey][$methodKey])) {
-                    $uncachedQueries[$classKey . "\0" . $methodKey] = new MemberIdentifier($entry['providerClass'], $entry['providerMethod']);
-                }
-            }
-            if ($uncachedQueries !== []) {
-                $context->codebase->getMultipleDeclaringMethods(array_values($uncachedQueries));
-            }
-
-            foreach ($pending as $entry) {
-                $classKey = strtolower($entry['providerClass']);
-                $methodKey = strtolower($entry['providerMethod']);
-                $cached = $this->providerRowsByMethod[$classKey][$methodKey] ?? null;
-
-                if ($cached === null) {
-                    $declaring = $context->codebase->getDeclaringMethod($entry['providerClass'], $entry['providerMethod']);
-                    if ($declaring === null || $declaring->location->file === $entry['testFile']) {
-                        continue;
-                    }
-
-                    $providerAnalysis = $context->analysis->getFile($declaring->location->file);
-                    if ($providerAnalysis === null) {
-                        continue;
-                    }
-
-                    $providerSource = $providerAnalysis->getSourceFile();
-                    $providerMethods = $this->methodsInFile($providerSource);
-                    $declaringClass = $declaring->identifier->class ?? $entry['providerClass'];
-                    $providerNode = $this->locateMethod($context, $providerMethods, $declaringClass, $declaring->originalName);
-                    if ($providerNode === null) {
-                        continue;
-                    }
-
-                    $providerLabel = $this->methodLabel($providerSource, $providerNode);
-                    $cached = [
-                        'file' => $providerAnalysis->file,
-                        'label' => $providerLabel,
-                        'rows' => $this->extractProviderRows($providerAnalysis, $providerSource, $providerNode, $needsKeyOrder),
-                    ];
-                    $this->providerRowsByMethod[$classKey][$methodKey] = $cached;
-                }
-
-                $checkedDepOffsets = [];
-                foreach ($cached['rows'] as $row) {
-                    $this->checkRow(
-                        $context,
-                        $cached['file'],
-                        $entry['testFile'],
-                        $row['type'],
-                        $row['span'],
-                        $row['label'],
-                        $entry['testLabel'],
-                        'Data provider ' . $cached['label'] . '()',
-                        $entry['schema'],
-                        $entry['validateCount'],
-                        $entry['dependencies'],
-                        $checkedDepOffsets,
-                        $row['keyOrder'],
-                    );
-                }
-            }
-
-            return;
-        }
-
+        // Query codebase metadata directly so cross-file #[DataProviderExternal] checks are deterministic under any worker pool size.
         $methods = $context->codebase->findMethods(
             descendantsOf: 'PHPUnit\\Framework\\TestCase',
             withAnyAttribute: ['PHPUnit\\Framework\\Attributes\\DataProviderExternal'],
@@ -499,23 +374,19 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
             declaredOnly: true,
         );
 
+        $entries = [];
+        $declaringQueries = [];
         foreach ($methods as $testMethod) {
             if ($testMethod->location === null || $testMethod->parameters === null || $testMethod->attributes === null) {
                 continue;
             }
 
             $testFile = $testMethod->location->file;
-            $testLabel = $testMethod->originalName ?? $testMethod->method->member;
-            $dependencies = $this->valuePassingDependencies(
-                $context,
-                $this->dependencyReferencesFromAttributes($testMethod->attributes, $testMethod->method->class),
-            );
-            $schema = $this->parameterSchema(
-                $testMethod->parameters,
-                count($dependencies),
-            );
-            $checkedDepOffsets = [];
+            if ($context->analysis->getFile($testFile) === null) {
+                continue;
+            }
 
+            $providers = [];
             foreach ($testMethod->attributes as $attribute) {
                 if (strtolower($attribute->name) !== self::DATA_PROVIDER_EXTERNAL) {
                     continue;
@@ -529,42 +400,114 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                     continue;
                 }
 
-                $declaring = $context->codebase->getDeclaringMethod($providerClass, $providerMethod);
-                if ($declaring === null || $declaring->location->file === $testFile) {
-                    continue;
-                }
-
-                $providerAnalysis = $context->analysis->getFile($declaring->location->file);
-                if ($providerAnalysis === null) {
-                    continue;
-                }
-
-                $providerSource = $providerAnalysis->getSourceFile();
-                $providerMethods = $this->methodsInFile($providerSource);
-                $declaringClass = $declaring->identifier->class ?? $providerClass;
-                $providerNode = $this->locateMethod($context, $providerMethods, $declaringClass, $declaring->originalName);
-                if ($providerNode === null) {
-                    continue;
-                }
-
                 $validateCount = $attribute->getArgument(2, 'validateArgumentCount')?->valueType?->getLiteralBool() ?? true;
-                $providerLabel = $this->methodLabel($providerSource, $providerNode);
-                $this->checkProvider(
-                    $context,
-                    $providerAnalysis,
-                    $testFile,
-                    $providerSource,
-                    $providerNode,
-                    $testLabel,
-                    'Data provider ' . $providerLabel . '()',
-                    $schema,
-                    $validateCount,
-                    $dependencies,
-                    $checkedDepOffsets,
-                    $needsKeyOrder,
-                );
+                $providers[] = [
+                    'class' => $providerClass,
+                    'method' => $providerMethod,
+                    'validateCount' => $validateCount,
+                ];
+                $declaringQueries[strtolower($providerClass) . "\0" . strtolower($providerMethod)] = new MemberIdentifier($providerClass, $providerMethod);
+            }
+
+            if ($providers === []) {
+                continue;
+            }
+
+            $entries[] = [
+                'method' => $testMethod,
+                'testFile' => $testFile,
+                'providers' => $providers,
+            ];
+        }
+
+        if ($entries === []) {
+            $this->reset();
+
+            return;
+        }
+
+        if ($declaringQueries !== []) {
+            $context->codebase->getMultipleDeclaringMethods(array_values($declaringQueries));
+        }
+
+        /** @var array<string, array{file: string, label: string, rows: list<array{type: Type, span: Span, label: string, keyOrder: ?list<string>}>}|false> $providerCache */
+        $providerCache = [];
+
+        foreach ($entries as $entry) {
+            $testMethod = $entry['method'];
+            $testFile = $entry['testFile'];
+            $testLabel = $testMethod->originalName ?? $testMethod->method->member;
+            $dependencies = $this->valuePassingDependencies(
+                $context,
+                $this->dependencyReferencesFromAttributes($testMethod->attributes, $testMethod->method->class),
+            );
+            $schema = $this->parameterSchema(
+                $testMethod->parameters,
+                count($dependencies),
+            );
+            $checkedDepOffsets = [];
+
+            foreach ($entry['providers'] as $provider) {
+                $declaring = $context->codebase->getDeclaringMethod($provider['class'], $provider['method']);
+                if (
+                    $declaring === null
+                    || $declaring->location->file === $testFile
+                    || $declaring->visibility !== Visibility::Public
+                    || !$declaring->static
+                ) {
+                    continue;
+                }
+
+                $cacheKey = strtolower($declaring->identifier->class ?? $provider['class']) . "\0" . strtolower($declaring->originalName);
+                if (!array_key_exists($cacheKey, $providerCache)) {
+                    $providerAnalysis = $context->analysis->getFile($declaring->location->file);
+                    if ($providerAnalysis === null) {
+                        $providerCache[$cacheKey] = false;
+                        continue;
+                    }
+
+                    $providerSource = $providerAnalysis->getSourceFile();
+                    $providerMethods = $this->methodsInFile($providerSource);
+                    $declaringClass = $declaring->identifier->class ?? $provider['class'];
+                    $providerNode = $this->locateMethod($context, $providerMethods, $declaringClass, $declaring->originalName);
+                    if ($providerNode === null) {
+                        $providerCache[$cacheKey] = false;
+                        continue;
+                    }
+
+                    $providerCache[$cacheKey] = [
+                        'file' => $providerAnalysis->file,
+                        'label' => $this->methodLabel($providerSource, $providerNode),
+                        'rows' => $this->extractProviderRows($providerAnalysis, $providerSource, $providerNode, $needsKeyOrder),
+                    ];
+                }
+
+                $cached = $providerCache[$cacheKey];
+                if ($cached === false) {
+                    continue;
+                }
+
+                foreach ($cached['rows'] as $row) {
+                    $this->checkRow(
+                        $context,
+                        $cached['file'],
+                        $testFile,
+                        $row['type'],
+                        $row['span'],
+                        $row['label'],
+                        $testLabel,
+                        'Data provider ' . $cached['label'] . '()',
+                        $schema,
+                        $provider['validateCount'],
+                        $dependencies,
+                        $checkedDepOffsets,
+                        $row['keyOrder'],
+                    );
+                }
             }
         }
+
+        $this->reset();
     }
 
     /**

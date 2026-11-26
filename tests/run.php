@@ -1080,7 +1080,7 @@ if ($failures > 0) {
     exit(1);
 }
 
-foreach (array_merge(glob(__DIR__ . '/wave8-*.php') ?: [], [__DIR__ . '/contains-only-function.php']) as $contract) {
+foreach (array_merge(glob(__DIR__ . '/wave8-*.php') ?: [], [__DIR__ . '/contains-only-function.php', __DIR__ . '/worker-and-lifecycle.php']) as $contract) {
     $result = run([PHP_BINARY, $contract]);
     fwrite(STDOUT, $result['stdout']);
     fwrite(STDERR, $result['stderr']);

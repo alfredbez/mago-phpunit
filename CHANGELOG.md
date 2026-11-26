@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-11-26
+
+### Fixed
+
+- `DataProviderArguments::methodsInFile()` walks from the AST root without descending into class, interface, trait, enum, function, expression, or attribute subtrees, and reads class identifiers and methods in a single child pass instead of scanning every node in the file via `SourceFile::getNodes(NodeKind::Class_)`.
+
 ## [1.0.0] - 2026-11-26
 
 First stable release targeting PHP `~8.1` through `~8.6`, Mago `^1.60.2` (verified on `1.60.2` and `1.61.0`), and PHPUnit `^10.5 || ^11.5 || ^12.0 || ^13.0`.

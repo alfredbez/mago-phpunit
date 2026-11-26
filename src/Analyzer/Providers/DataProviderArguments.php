@@ -52,6 +52,7 @@ use Mago\Sdk\Analyzer\Type\StringCasing;
 use Mago\Sdk\Analyzer\Type\StringLiteralKind;
 use Mago\Sdk\Analyzer\Type\StringType;
 use Mago\Sdk\Analyzer\Type\Visibility;
+use Mago\Sdk\Exception\InvalidArgumentException;
 use Mago\Sdk\Reporting\Issue;
 use Mago\Sdk\Reporting\Level;
 use Mago\Sdk\SourceLocation;
@@ -1087,6 +1088,45 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
     }
 
     /**
+     * @return list<Node>
+     */
+    private function classNodesInFile(SourceFile $source): array
+    {
+        try {
+            $root = $source->getNode(0);
+        } catch (InvalidArgumentException) {
+            return [];
+        }
+
+        $classes = [];
+        $stack = [$root];
+        while ($stack !== []) {
+            $node = array_pop($stack);
+            if ($node->kind === NodeKind::Class_) {
+                $classes[] = $node;
+                continue;
+            }
+            if (
+                $node->kind === NodeKind::Interface
+                || $node->kind === NodeKind::Trait
+                || $node->kind === NodeKind::Enum
+                || $node->kind === NodeKind::Function
+                || $node->kind === NodeKind::Expression
+                || $node->kind === NodeKind::AttributeList
+            ) {
+                continue;
+            }
+
+            $children = $source->getChildren($node);
+            for ($index = count($children) - 1; $index >= 0; --$index) {
+                $stack[] = $children[$index];
+            }
+        }
+
+        return $classes;
+    }
+
+    /**
      * @return array<string, array<string, Node>>
      */
     private function methodsInFile(SourceFile $source): array
@@ -1096,21 +1136,15 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
         }
 
         $methods = [];
-        foreach ($source->getNodes(NodeKind::Class_) as $classNode) {
+        foreach ($this->classNodesInFile($source) as $classNode) {
             $className = null;
-            foreach ($source->getChildren($classNode) as $child) {
-                if ($child->kind !== NodeKind::LocalIdentifier) {
+            $classMethods = [];
+            foreach ($source->getChildren($classNode) as $member) {
+                if ($className === null && $member->kind === NodeKind::LocalIdentifier) {
+                    $className = $source->getResolvedName($member)->name ?? null;
                     continue;
                 }
 
-                $className = $source->getResolvedName($child)->name ?? null;
-                break;
-            }
-            if ($className === null) {
-                continue;
-            }
-
-            foreach ($source->getChildren($classNode) as $member) {
                 $method = $member->kind === NodeKind::Method
                     ? $member
                     : ($member->kind === NodeKind::ClassLikeMember ? ($source->getChildren($member)[0] ?? null) : null);
@@ -1119,7 +1153,19 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                 }
 
                 $label = $this->methodLabel($source, $method);
-                $methods[strtolower($className)][strtolower($label)] = $method;
+                $classMethods[strtolower($label)] = $method;
+            }
+            if ($className === null || $classMethods === []) {
+                continue;
+            }
+
+            $lowerClass = strtolower($className);
+            if (!isset($methods[$lowerClass])) {
+                $methods[$lowerClass] = $classMethods;
+            } else {
+                foreach ($classMethods as $methodKey => $methodNode) {
+                    $methods[$lowerClass][$methodKey] = $methodNode;
+                }
             }
         }
 

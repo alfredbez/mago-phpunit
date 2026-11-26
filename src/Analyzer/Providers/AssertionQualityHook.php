@@ -24,6 +24,7 @@ use Mago\Sdk\SourceLocation;
 use Mago\Sdk\Syntax\CallExpression;
 use Mago\Sdk\Syntax\Node;
 use Mago\Sdk\Syntax\SourceFile;
+use WeakReference;
 
 final class AssertionQualityHook implements MethodCallAnalysisHook, NodeAnalysisHook
 {
@@ -37,12 +38,26 @@ final class AssertionQualityHook implements MethodCallAnalysisHook, NodeAnalysis
         'assertIsNotClosedResource', 'assertIsNotScalar', 'assertIsNotString',
     ];
 
-    /** @var \WeakMap<SourceFile, array<int, array{captures: array<string, int>, references: array<string, int>, writes: array<string, list<int>>, calls: list<array{start: int, end: int, name: string, arguments: list<string>}>}>> */
-    private \WeakMap $scopes;
+    /** @var WeakReference<SourceFile>|null */
+    private ?WeakReference $lastScopeSource = null;
 
-    public function __construct(private readonly bool $functions = false, private readonly bool $sameOnly = false)
+    /** @var array<int, array{captures: array<string, int>, references: array<string, int>, writes: array<string, list<int>>, calls: list<array{start: int, end: int, name: string, arguments: list<string>}>}> */
+    private array $lastScopes = [];
+
+    /** @var WeakReference<SourceFile>|null */
+    private ?WeakReference $lastCallSource = null;
+
+    /** @var array<string, Node> */
+    private array $lastCallIndex = [];
+
+    public function __construct(private readonly bool $functions = false, private readonly bool $sameOnly = false) {}
+
+    public function reset(): void
     {
-        $this->scopes = new \WeakMap();
+        $this->lastScopeSource = null;
+        $this->lastScopes = [];
+        $this->lastCallSource = null;
+        $this->lastCallIndex = [];
     }
 
     public function getTargets(): array
@@ -62,7 +77,7 @@ final class AssertionQualityHook implements MethodCallAnalysisHook, NodeAnalysis
             return [FileAnalysisRequirement::SourceText, FileAnalysisRequirement::ArgumentTypes];
         }
         return $this->functions
-            ? [FileAnalysisRequirement::SourceText, FileAnalysisRequirement::TargetSubtree]
+            ? [FileAnalysisRequirement::SourceText]
             : [FileAnalysisRequirement::SourceText, FileAnalysisRequirement::TargetSubtree, FileAnalysisRequirement::ArgumentTypes, FileAnalysisRequirement::ExpressionTypes];
     }
 
@@ -70,7 +85,16 @@ final class AssertionQualityHook implements MethodCallAnalysisHook, NodeAnalysis
     {
         $source = $context->source;
         $node = $context->node;
-        if ($this->sameOnly) {
+        if ($this->functions) {
+            $text = $source->getText($node);
+            $open = strpos($text, '(');
+            $callee = $open === false ? $text : substr($text, 0, $open);
+            if (stripos($callee, 'assert') === false) {
+                return;
+            }
+            $source = $context->analysis->getSourceFile();
+            $node = $this->findCall($source, $node);
+        } elseif ($this->sameOnly) {
             $text = $source->getText($node);
             $open = strpos($text, '(');
             $arguments = $open === false ? $text : substr($text, $open + 1);
@@ -91,10 +115,18 @@ final class AssertionQualityHook implements MethodCallAnalysisHook, NodeAnalysis
 
     private function findCall(SourceFile $source, Node $target): Node
     {
-        foreach ($source->getNodes($target->kind) as $node) {
-            if ($node->span->start === $target->span->start && $node->span->end === $target->span->end) {
-                return $node;
+        if ($this->lastCallSource?->get() !== $source) {
+            $this->lastCallSource = WeakReference::create($source);
+            $this->lastCallIndex = [];
+        }
+        $key = $target->kind->value . ':' . $target->span->start . ':' . $target->span->end;
+        if (!isset($this->lastCallIndex[$key])) {
+            foreach ($source->getNodes($target->kind) as $node) {
+                $this->lastCallIndex[$target->kind->value . ':' . $node->span->start . ':' . $node->span->end] = $node;
             }
+        }
+        if (isset($this->lastCallIndex[$key])) {
+            return $this->lastCallIndex[$key];
         }
         throw new \LogicException('The native assertion target is absent from its complete source snapshot.');
     }
@@ -244,10 +276,12 @@ final class AssertionQualityHook implements MethodCallAnalysisHook, NodeAnalysis
         if ($scope === null) {
             return false;
         }
-        $facts = $this->scopes[$source] ?? [];
-        $facts[$scope->id] ??= $this->indexScope($source, $scope);
-        $this->scopes[$source] = $facts;
-        $facts = $facts[$scope->id];
+        if ($this->lastScopeSource?->get() !== $source) {
+            $this->lastScopeSource = WeakReference::create($source);
+            $this->lastScopes = [];
+        }
+        $this->lastScopes[$scope->id] ??= $this->indexScope($source, $scope);
+        $facts = $this->lastScopes[$scope->id];
         $capture = ($resource ? $facts['captures'] : $facts['references'])[$identity] ?? null;
         if (!$property && !$resource && $capture === null) {
             return false;

@@ -35,18 +35,21 @@ final class LegacyMockSourceIndex
     /** @var list<array{start: int, namespace: int, aliases: array<string, string>}> */
     private array $functionImports = [];
 
+    public function reset(): void
+    {
+        $this->cache = [];
+    }
+
     /** @return null|array{class: ?string, function: ?FunctionLikeIdentifier, variable: ?string, property: ?string, type: ?Type, withoutMock: bool, plainCallCompatible: bool} */
     public function find(string $file, string $contents, Span $method, Span $receiverSpan, ?Codebase $codebase = null): ?array
     {
         $key = $file . ':' . hash('xxh128', $contents);
         $snapshot = $this->cache[$key] ?? null;
         if ($snapshot === null) {
-            if (count($this->cache) >= 16) {
-                $this->cache = [];
-            }
             $snapshot = new self();
             $snapshot->index($contents);
-            $this->cache[$key] = $snapshot;
+            // IssueFilterHook processes one file per request, so keeping only the current snapshot bounds token memory.
+            $this->cache = [$key => $snapshot];
         }
         return $snapshot->findInSnapshot($contents, $method, $receiverSpan, $codebase);
     }

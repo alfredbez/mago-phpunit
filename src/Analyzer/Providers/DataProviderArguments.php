@@ -60,7 +60,7 @@ use Mago\Sdk\Syntax\Node;
 use Mago\Sdk\Syntax\NodeKind;
 use Mago\Sdk\Syntax\SourceFile;
 use Mago\Sdk\Syntax\TriviaKind;
-use WeakMap;
+use WeakReference;
 
 /**
  * Reports data-provider, TestWith, and TestWithJson rows whose arity or argument types cannot match the test method.
@@ -99,11 +99,17 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
     /** Method dependencies that pass return values into TestCase::$dependencyInput. Class dependencies do not. */
     private const METHOD_DEPENDENCY_ATTRIBUTES = self::SAME_CLASS_DEPENDENCY_ATTRIBUTES + self::EXTERNAL_DEPENDENCY_ATTRIBUTES;
 
-    /** @var WeakMap<SourceFile, array<string, array<string, Node>>> */
-    private WeakMap $methodsByFile;
+    /** @var WeakReference<SourceFile>|null */
+    private ?WeakReference $lastMethodsSource = null;
 
-    /** @var WeakMap<SourceFile, array<string, list<array{type: Type, span: Span, label: string, keyOrder: ?list<string>}>>> */
-    private WeakMap $providerRowsByFile;
+    /** @var array<string, array<string, Node>> */
+    private array $lastMethodsInFile = [];
+
+    /** @var WeakReference<SourceFile>|null */
+    private ?WeakReference $lastRowsSource = null;
+
+    /** @var array<string, list<array{type: Type, span: Span, label: string, keyOrder: ?list<string>}>> */
+    private array $lastProviderRowsInFile = [];
 
     /** @var array<string, array<string, array{file: string, label: string, rows: list<array{type: Type, span: Span, label: string, keyOrder: ?list<string>}>}>> */
     private array $providerRowsByMethod = [];
@@ -133,10 +139,15 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
 
     private bool $sawAnalyzeCall = false;
 
-    public function __construct()
+    public function reset(): void
     {
-        $this->methodsByFile = new WeakMap();
-        $this->providerRowsByFile = new WeakMap();
+        $this->lastMethodsSource = null;
+        $this->lastMethodsInFile = [];
+        $this->lastRowsSource = null;
+        $this->lastProviderRowsInFile = [];
+        $this->providerRowsByMethod = [];
+        $this->pendingExternalProviders = [];
+        $this->sawAnalyzeCall = false;
     }
 
     public function getTargets(): array
@@ -1135,8 +1146,8 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
      */
     private function methodsInFile(SourceFile $source): array
     {
-        if (isset($this->methodsByFile[$source])) {
-            return $this->methodsByFile[$source];
+        if ($this->lastMethodsSource?->get() === $source) {
+            return $this->lastMethodsInFile;
         }
 
         $methods = [];
@@ -1167,7 +1178,10 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
             }
         }
 
-        return $this->methodsByFile[$source] = $methods;
+        $this->lastMethodsSource = WeakReference::create($source);
+        $this->lastMethodsInFile = $methods;
+
+        return $methods;
     }
 
     /**
@@ -1269,10 +1283,13 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
      */
     private function extractProviderRows(FileAnalysis $analysis, SourceFile $source, Node $provider, bool $needsKeyOrder = false): array
     {
+        if ($this->lastRowsSource?->get() !== $source) {
+            $this->lastRowsSource = WeakReference::create($source);
+            $this->lastProviderRowsInFile = [];
+        }
         $cacheKey = $provider->id . ':' . (int) $needsKeyOrder;
-        $cached = $this->providerRowsByFile[$source] ?? [];
-        if (isset($cached[$cacheKey])) {
-            return $cached[$cacheKey];
+        if (isset($this->lastProviderRowsInFile[$cacheKey])) {
+            return $this->lastProviderRowsInFile[$cacheKey];
         }
 
         $rows = [];
@@ -1318,8 +1335,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                 ];
             }
 
-            $cached[$cacheKey] = $rows;
-            $this->providerRowsByFile[$source] = $cached;
+            $this->lastProviderRowsInFile[$cacheKey] = $rows;
 
             return $rows;
         }
@@ -1344,8 +1360,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
             }
         }
 
-        $cached[$cacheKey] = $rows;
-        $this->providerRowsByFile[$source] = $cached;
+        $this->lastProviderRowsInFile[$cacheKey] = $rows;
 
         return $rows;
     }

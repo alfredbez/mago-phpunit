@@ -38,7 +38,7 @@ use Mago\Sdk\Syntax\CallExpression;
 use Mago\Sdk\Syntax\Node;
 use Mago\Sdk\Syntax\NodeKind;
 use Mago\Sdk\Syntax\SourceFile;
-use WeakMap;
+use WeakReference;
 
 /**
  * Validates PHPUnit MockBuilder::onlyMethods()/addMethods() method lists and
@@ -94,19 +94,23 @@ final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
         'throwexception' => true,
     ];
 
+    /** @var WeakReference<SourceFile>|null */
+    private ?WeakReference $lastScopeSource = null;
+
     /**
-     * @var WeakMap<SourceFile, array<int, array{
+     * @var array<int, array{
      *     dynamicWrite: bool,
      *     ambiguous: array<string, true>,
      *     writes: array<string, list<array{assign: Node, rhs: Node, containerId: ?int}>>,
      *     callArgOffsets: array<string, list<int>>,
-     * }>>
+     * }>
      */
-    private WeakMap $scopeLocalIndex;
+    private array $lastScopeLocalIndex = [];
 
-    public function __construct()
+    public function reset(): void
     {
-        $this->scopeLocalIndex = new WeakMap();
+        $this->lastScopeSource = null;
+        $this->lastScopeLocalIndex = [];
     }
 
     private const MOCK_BUILDER_CLASSES = [
@@ -1519,9 +1523,12 @@ final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
      */
     private function indexScopeLocals(NodeAnalysisContext $context, SourceFile $source, Node $scope): array
     {
-        $cached = $this->scopeLocalIndex[$source] ?? [];
-        if (isset($cached[$scope->id])) {
-            return $cached[$scope->id];
+        if ($this->lastScopeSource?->get() !== $source) {
+            $this->lastScopeSource = WeakReference::create($source);
+            $this->lastScopeLocalIndex = [];
+        }
+        if (isset($this->lastScopeLocalIndex[$scope->id])) {
+            return $this->lastScopeLocalIndex[$scope->id];
         }
 
         $dynamicWrite = false;
@@ -1706,8 +1713,7 @@ final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
             'writes' => $writes,
             'callArgOffsets' => $callArgOffsets,
         ];
-        $cached[$scope->id] = $facts;
-        $this->scopeLocalIndex[$source] = $cached;
+        $this->lastScopeLocalIndex[$scope->id] = $facts;
 
         return $facts;
     }

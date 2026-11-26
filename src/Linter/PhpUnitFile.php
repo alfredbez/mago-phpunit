@@ -70,6 +70,11 @@ final class PhpUnitFile
         }
     }
 
+    public static function reset(): void
+    {
+        self::$lastFile = null;
+    }
+
     public static function for(SourceFile $file): self
     {
         if (self::$lastFile?->file !== $file) {

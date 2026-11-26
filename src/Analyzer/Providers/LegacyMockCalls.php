@@ -19,7 +19,11 @@ use Mago\Sdk\Reporting\Issue;
 use Mago\Sdk\Reporting\Level;
 use Mago\Sdk\SourceLocation;
 use Mago\Sdk\Syntax\CallExpression;
+use Mago\Sdk\Syntax\Node;
 use Mago\Sdk\Syntax\NodeKind;
+use Mago\Sdk\Syntax\SourceFile;
+use PhpToken;
+use WeakReference;
 
 final class LegacyMockCalls implements NodeAnalysisHook
 {
@@ -27,6 +31,18 @@ final class LegacyMockCalls implements NodeAnalysisHook
     private const INVOCATION_ORDER = 'PHPUnit\\Framework\\MockObject\\Rule\\InvocationOrder';
     private const INVOCATION_RULE = 'PHPUnit\\Framework\\MockObject\\Rule\\InvocationRule';
     private const CONSTRAINT = 'PHPUnit\\Framework\\Constraint\\Constraint';
+
+    /** @var WeakReference<SourceFile>|null */
+    private ?WeakReference $lastSource = null;
+
+    /** @var array<string, Node> */
+    private array $lastCallIndex = [];
+
+    public function reset(): void
+    {
+        $this->lastSource = null;
+        $this->lastCallIndex = [];
+    }
 
     public function getTargets(): array
     {
@@ -37,26 +53,42 @@ final class LegacyMockCalls implements NodeAnalysisHook
     {
         return [
             FileAnalysisRequirement::SourceText,
-            FileAnalysisRequirement::TargetSubtree,
-            FileAnalysisRequirement::ExpressionTypes,
         ];
     }
 
     public function analyze(NodeAnalysisContext $context): void
     {
-        $call = CallExpression::fromNode($context->source, $context->node);
-        $called = strtolower($call->getName($context->source) ?? '');
+        $text = $context->source->getText($context->node);
+        if (stripos($text, 'method') === false && stripos($text, 'expects') === false) {
+            return;
+        }
+        $outerCalled = self::extractOuterMethodName($text);
+        if ($outerCalled !== 'method' && $outerCalled !== 'expects') {
+            return;
+        }
+        $source = $context->analysis->getSourceFile();
+        $node = $this->findCall($source, $context->node);
+        if ($node === null) {
+            return;
+        }
+        $call = CallExpression::fromNode($source, $node);
+        $called = strtolower($call->getName($source) ?? '');
         if ($called !== 'method' && $called !== 'expects') {
             return;
         }
         if (count($call->arguments) !== 1 || $call->arguments[0]->unpacked) {
             return;
         }
-        $argType = $context->analysis->getExpressionType($call->arguments[0]->value);
+        if ($call->receiver === null) {
+            return;
+        }
+        [$argType, $type] = $context->analysis->getMultipleExpressionTypes([
+            $call->arguments[0]->value,
+            $call->receiver,
+        ]);
         if (!self::isCompatiblePlainCallArgument($context, $called, $argType)) {
             return;
         }
-        $type = $call->receiver === null ? null : $context->analysis->getExpressionType($call->receiver);
         if (self::isLegacyUnion($type)) {
             return;
         }
@@ -67,20 +99,20 @@ final class LegacyMockCalls implements NodeAnalysisHook
         if ($atomic->intersections !== null && $atomic->intersections !== []) {
             return;
         }
-        $name = $call->getName($context->source);
+        $name = $call->getName($source);
         if ($name === null || !self::isPlainMockTarget($context->codebase, $atomic->name, $name)) {
             return;
         }
         $inTest = false;
-        foreach ($context->source->getAncestors($context->node) as $ancestor) {
+        foreach ($source->getAncestors($node) as $ancestor) {
             if ($ancestor->kind !== NodeKind::Class_) {
                 continue;
             }
-            foreach ($context->source->getChildren($ancestor) as $child) {
+            foreach ($source->getChildren($ancestor) as $child) {
                 if ($child->kind !== NodeKind::LocalIdentifier) {
                     continue;
                 }
-                $owner = $context->source->getResolvedName($child)?->name;
+                $owner = $source->getResolvedName($child)?->name;
                 $inTest = self::isTestClass($context->codebase, $owner);
             }
             break;
@@ -90,8 +122,59 @@ final class LegacyMockCalls implements NodeAnalysisHook
         }
         $context->report(Level::Error, 'mock-call-on-plain-type', Issue::at(
             "PHPUnit {$name}() called on plain type `{$atomic->name}`.",
-            new SourceLocation($context->analysis->file, $context->node->span),
+            new SourceLocation($context->analysis->file, $node->span),
         )->withHelp("Declare the double as {$atomic->name}&MockObject so its mocked API is known."));
+    }
+
+    private function findCall(SourceFile $source, Node $target): ?Node
+    {
+        if ($this->lastSource?->get() !== $source) {
+            $this->lastSource = WeakReference::create($source);
+            $this->lastCallIndex = [];
+            foreach ($source->getNodes(NodeKind::MethodCall) as $candidate) {
+                $this->lastCallIndex[$candidate->span->start . ':' . $candidate->span->end] = $candidate;
+            }
+            foreach ($source->getNodes(NodeKind::NullSafeMethodCall) as $candidate) {
+                $this->lastCallIndex[$candidate->span->start . ':' . $candidate->span->end] = $candidate;
+            }
+        }
+
+        return $this->lastCallIndex[$target->span->start . ':' . $target->span->end] ?? null;
+    }
+
+    private static function extractOuterMethodName(string $callText): ?string
+    {
+        $tokens = array_values(array_filter(
+            PhpToken::tokenize('<?php ' . $callText),
+            static fn (PhpToken $token): bool => $token->id !== T_OPEN_TAG && !$token->isIgnorable(),
+        ));
+        $last = count($tokens) - 1;
+        if ($last < 3 || $tokens[$last]->text !== ')') {
+            return null;
+        }
+        $depth = 0;
+        $open = null;
+        for ($i = $last; $i >= 0; $i--) {
+            $t = $tokens[$i]->text;
+            if ($t === ')') {
+                $depth++;
+            } elseif ($t === '(') {
+                $depth--;
+                if ($depth === 0) {
+                    $open = $i;
+                    break;
+                }
+            }
+        }
+        if ($open === null || $open < 2) {
+            return null;
+        }
+        $operator = $tokens[$open - 2]->text;
+        if ($operator !== '->' && $operator !== '?->') {
+            return null;
+        }
+
+        return strtolower($tokens[$open - 1]->text);
     }
 
     public static function isTestClass(Codebase $codebase, ?string $name): bool

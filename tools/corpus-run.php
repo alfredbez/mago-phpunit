@@ -64,7 +64,7 @@ $targets = [
             'tests/unit/Core/Framework/Validation',
             'tests/unit/Core/Framework/Adapter',
         ],
-        'includes' => ['src', 'tests/unit'],
+        'includes' => ['src'],
         'repo_includes' => ['vendor/phpunit/phpunit/src'],
         'install_composer' => false,
         'check_property_init' => true,
@@ -162,7 +162,7 @@ foreach ($targets as $name => $spec) {
         }
     }
     $includesToml = implode(', ', array_map(static fn (string $p): string => json_encode($p, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), $includeList));
-    $workerPath = json_encode($repoRoot . '/tests/worker.php', JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+    $workerPath = json_encode($repoRoot . '/bin/mago-phpunit-worker', JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
     $phpBin = json_encode(PHP_BINARY, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
     $propInit = $spec['check_property_init'] ? 'true' : 'false';
 
@@ -180,7 +180,7 @@ find-unused-expressions = false
 check-property-initialization = {$propInit}
 
 [extension-hosts.phpunit]
-command = [{$phpBin}, {$workerPath}]
+command = [{$phpBin}, "-d", "xdebug.mode=off", "-d", "pcov.enabled=0", "-d", "memory_limit=512M", {$workerPath}]
 workers = 1
 TOML;
     file_put_contents($tomlPath, $toml);

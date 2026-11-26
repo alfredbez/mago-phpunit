@@ -42,13 +42,14 @@ includes = ["vendor/phpunit/phpunit/src"]
 check-property-initialization = true
 
 [extension-hosts.phpunit]
-command = ["php", "-d", "xdebug.mode=off", "-d", "pcov.enabled=0", "vendor/bin/mago-phpunit-worker"]
+command = ["php", "-d", "xdebug.mode=off", "-d", "pcov.enabled=0", "-d", "memory_limit=512M", "vendor/bin/mago-phpunit-worker"]
 workers = 1
 ```
 
 - Include PHPUnit's source under `[source] includes` so Mago can read its types and attributes. Add your application source to `paths` or `includes` too.
+- The `-d` flags keep Xdebug and PCOV out of the worker and give the worker 512M of headroom for multi-thousand-line test files. Small and medium suites also run within PHP's default 128M limit.
 - Remove `"phpunit"` from `[linter] integrations` to avoid duplicate lint reports. Keep your other integrations.
-- The extension recognizes `setUp()` and `#[Before]` on test classes, parent classes, and traits. For readonly properties that Mago still treats as constructor-only, add `class-initializers = ["PHPUnit\\Framework\\TestCase::setUp"]` under `[analyzer]`.
+- The extension recognizes `setUp()` and `#[Before]` on test classes, parent classes, and traits, and registers PHPUnit lifecycle attributes and hooks as entry points under `find-unused-definitions = true`. For readonly properties that Mago still treats as constructor-only, add `class-initializers = ["PHPUnit\\Framework\\TestCase::setUp"]` under `[analyzer]`.
 - Prophecy is optional. If you use it, include `vendor/phpspec` under `[source] includes`. This package does not install Prophecy in consumers.
 
 ```shell
@@ -247,10 +248,25 @@ static::assertEmpty($result);
 
 [phpstan-phpunit](https://github.com/phpstan/phpstan-phpunit/blob/2.0.x/README.md) supplies assertion and mock typing, legacy mock-union support, and PHPUnit-specific rules for PHPStan. This package supplies those categories for Mago and adds the provider, coverage, Prophecy, and lint checks listed above. It does not load PHPStan configuration or reuse PHPStan's implementation. The check lists are separate contracts, not a claim of complete analyzer parity.
 
+## Compatibility and SemVer policy
+
+This project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) from `1.0.0`.
+
+**Public PHP API.** `AlfredBez\MagoPhpunit\PhpUnitExtension::create()`, `plugin()`, `linterRules()`, and `VERSION` are the supported entry points. Analyzer plugins, providers, hooks, and linter helper classes under `AlfredBez\MagoPhpunit\Analyzer` and `AlfredBez\MagoPhpunit\Linter` are `@internal`. They can change without a major version bump.
+
+**Worker.** `bin/mago-phpunit-worker` (Composer `vendor/bin/mago-phpunit-worker`) is the supported CLI. Stdout carries the Mago extension protocol. Diagnostics and warnings go to stderr.
+
+**Diagnostic and lint codes.** All analyzer codes in the Checks table are enabled by default. The three default-on lint rules (`strict-assertions`, `use-specific-assertions`, `assertion-style-static`) and five opt-in lint rules follow the table above. Adding a new default-on diagnostic or lint rule is a minor bump. Changing the meaning of an existing code, removing a code, or turning an opt-in lint rule on by default is a major bump.
+
+**Suppression.** Project-wide `[analyzer] ignore = ["alfredbez/phpunit/<code>"]`, per-expression `// @mago-ignore analysis:alfredbez/phpunit/<code>`, per-rule `[linter.rules."alfredbez/phpunit/<code>"] enabled = false`, and `// @mago-ignore lint:alfredbez/phpunit/<code>` remain supported.
+
+**Supported floors.** PHP `~8.1` through `~8.6` with `ext-tokenizer`, Mago `^1.60.2` (verified on `1.60.2` and `1.61.0`), and PHPUnit `^10.5 || ^11.5 || ^12.0 || ^13.0`.
+
 ## Known limitations
 
 - Expressions whose plain type comes only from an external return-type provider or unmodeled dynamic flow (for example, an `object`-returning helper narrowed by another plugin) can still produce both native and extension mock-call reports. Mago `1.60.2` and `1.61.0` run `IssueFilterHook` before exposing full inferred expression types, so the filter stays conservative when a plain receiver cannot be proved safely from source and codebase metadata.
 - PHPUnit 10.5's native `@psalm-assert empty` annotation makes Mago infer `never` for an empty Countable and discard the valid string `"0"`. The extension deliberately avoids duplicating native assertions. Runtime tests prove both values pass PHPUnit, and analyzer tests preserve parity with `--no-extensions` for this inherited defect.
+- When a property is initialized to `[]` and mutated only inside a closure before `assertCount(1, $obj->prop)`, Mago core still types the property as `array{}`. Intersecting `array{}` with `non-empty-array` can produce `no-value` until Mago tracks closure mutations.
 - Exact array count return typing applies to normal `count()`. Recursive or dynamic modes, optional shapes, unknown lengths, and Countable objects keep native behavior.
 - Property shapes apply only to generic objects, mixed values, and compatible object shapes. They do not replace concrete class types.
 - Linting has syntax information rather than analyzer type metadata. Inherited calls and provider casing resolve within the same file; external non-TestCase parent chains remain silent.

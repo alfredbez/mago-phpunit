@@ -6,6 +6,26 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-26
+
+First stable release targeting PHP `~8.1` through `~8.6`, Mago `^1.60.2` (verified on `1.60.2` and `1.61.0`), and PHPUnit `^10.5 || ^11.5 || ^12.0 || ^13.0`.
+
+### Added
+
+- PHPUnit lifecycle entry points for `#[Test]`, `#[Before]`, `#[After]`, `#[BeforeClass]`, `#[AfterClass]`, `#[PreCondition]`, `#[PostCondition]`, `setUp()`, `tearDown()`, `setUpBeforeClass()`, `tearDownAfterClass()`, `assertPreConditions()`, and `assertPostConditions()` so `find-unused-definitions = true` does not report unused test hooks.
+- `BeforeAnalysisHook` cache reset across repeated analysis runs in long-lived workers.
+- Compatibility and SemVer policy, `@internal` annotations on non-public classes, worker memory guidance (`-d memory_limit=512M` for large suites), floor-compatible PHP `8.1` and `8.2` CI lanes, explicit Mago `1.60.2` and `1.61.0` CI pins, and bounded Mago self-analysis in CI.
+
+### Fixed
+
+- `LegacyMockSourceIndex` finality check now uses `MetadataFlags::FINAL` so `static::` factory calls inside `final` test classes resolve cleanly.
+- `ProphecySupport` removes a non-existent `CallArgument::$placeholder` read and stops reporting `prophecy-union` on nullable `?ObjectProphecy<T>` parameters.
+- `PHPUnit\Framework\assertContainsOnlyInstancesOf()` (function form) is now registered alongside the static method form for PHPUnit 10.5 narrowing.
+- `mock-call-on-plain-type` now requires PHPUnit-compatible single arguments for `expects()` (`InvocationRule`, `InvocationOrder`, `object`, or `mixed`) and `method()` (`string`, `Constraint`, or `mixed`), preventing false positives on non-PHPUnit doubles such as `$double->expects('store')`.
+- Cross-file `#[DataProviderExternal]` validation now queries codebase metadata deterministically in `afterAnalysis()`, producing identical diagnostics across single-worker and multi-worker pools.
+- Per-file AST and token caches are now bounded to the active file and node hooks defer full AST fetches until a call matches, cutting peak worker memory so large test suites fit within 128M while documenting `-d memory_limit=512M` for headroom.
+- Production corpus checks now run `bin/mago-phpunit-worker` without overlapping `paths` and `includes`.
+
 ## [0.1.3] - 2026-11-25
 
 ### Fixed

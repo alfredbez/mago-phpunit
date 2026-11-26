@@ -6,30 +6,72 @@ on:
 
 jobs:
   suite:
-    name: PHPUnit ${{ matrix.phpunit }} / Mago ${{ matrix.mago }}
+    name: PHP ${{ matrix.php }} / PHPUnit ${{ matrix.phpunit }} / Mago ${{ matrix.mago }} / ${{ matrix.suite }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          - phpunit: "^10.5"
-            php: "8.3"
-            mago: "latest"
-          - phpunit: "^11.5"
-            php: "8.3"
-            mago: "latest"
-          - phpunit: "^12.0"
-            php: "8.3"
-            mago: "latest"
-          - phpunit: "^13.0"
-            php: "8.4"
-            mago: "latest"
-          - phpunit: "^10.5"
-            php: "8.3"
+          - php: "8.1"
+            phpunit: "^10.5"
             mago: "1.60.2"
-          - phpunit: "^13.0"
-            php: "8.4"
+            suite: floor
+          - php: "8.1"
+            phpunit: "^10.5"
+            mago: "1.61.0"
+            suite: floor
+          - php: "8.2"
+            phpunit: "^10.5"
             mago: "1.60.2"
+            suite: floor
+          - php: "8.2"
+            phpunit: "^10.5"
+            mago: "1.61.0"
+            suite: floor
+          - php: "8.3"
+            phpunit: "^10.5"
+            mago: "1.60.2"
+            suite: full
+          - php: "8.3"
+            phpunit: "^10.5"
+            mago: "1.61.0"
+            suite: full
+          - php: "8.3"
+            phpunit: "^10.5"
+            mago: "latest"
+            suite: full
+          - php: "8.3"
+            phpunit: "^11.5"
+            mago: "1.61.0"
+            suite: full
+          - php: "8.3"
+            phpunit: "^12.0"
+            mago: "1.61.0"
+            suite: full
+          - php: "8.3"
+            phpunit: "^12.0"
+            mago: "latest"
+            suite: full
+          - php: "8.4"
+            phpunit: "^13.0"
+            mago: "1.60.2"
+            suite: full
+          - php: "8.4"
+            phpunit: "^13.0"
+            mago: "1.61.0"
+            suite: full
+          - php: "8.4"
+            phpunit: "^13.0"
+            mago: "latest"
+            suite: full
+          - php: "8.5"
+            phpunit: "^12.0"
+            mago: "1.61.0"
+            suite: full
+          - php: "8.5"
+            phpunit: "^12.0"
+            mago: "latest"
+            suite: full
     steps:
       - uses: actions/checkout@v4
 
@@ -37,13 +79,13 @@ jobs:
         with:
           php-version: ${{ matrix.php }}
           coverage: none
-          extensions: curl, mbstring, xml, zip
+          extensions: curl, mbstring, xml, zip, tokenizer
           tools: composer
 
       - name: Validate Composer metadata
         run: composer validate --strict
 
-      - name: Install dependencies (latest Mago)
+      - name: Install dependencies (latest compatible Mago)
         if: matrix.mago == 'latest'
         run: composer update --no-interaction --prefer-dist --no-progress --with="phpunit/phpunit:${{ matrix.phpunit }}"
 
@@ -51,12 +93,50 @@ jobs:
         if: matrix.mago != 'latest'
         run: composer update --no-interaction --prefer-dist --no-progress --with="phpunit/phpunit:${{ matrix.phpunit }}" --with="carthage-software/mago:${{ matrix.mago }}"
 
+      - name: Pre-warm Mago
+        run: vendor/bin/mago --version
+
       - name: Verify installed Mago version
         if: matrix.mago != 'latest'
         run: test "$(php vendor/bin/mago --version)" = "mago ${{ matrix.mago }}"
 
+      - name: Syntax-check sources
+        run: find src bin -name '*.php' -print0 | xargs -0 -n1 php -l
+
+      - name: Validate extension
+        run: vendor/bin/mago extension validate
+
       - name: Validate conformance catalog
         run: php tests/check-spec.php
 
-      - name: Run suite
-        run: composer test
+      - name: Run analyzer suite
+        run: composer test:analyzer
+
+      - name: Run runtime contract tests
+        if: matrix.suite == 'full'
+        run: composer test:runtime
+
+  self-analysis:
+    name: Self-analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+          coverage: none
+          extensions: curl, mbstring, xml, zip, tokenizer
+          tools: composer
+
+      - name: Install dependencies
+        run: composer update --no-interaction --prefer-dist --no-progress --with="carthage-software/mago:1.61.0"
+
+      - name: Pre-warm Mago
+        run: vendor/bin/mago --version
+
+      - name: Analyze src and bin
+        run: vendor/bin/mago --config mago-self.toml analyze --no-extensions --reporting-format=json > .mago-self-report.json || true
+
+      - name: Enforce self-analysis baseline
+        run: php tools/self-analyze-gate.php .mago-self-report.json

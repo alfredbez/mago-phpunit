@@ -56,6 +56,10 @@ final class AssertionQualityHook implements MethodCallAnalysisHook
     /** @var array<string, Node> */
     private array $lastCallIndex = [];
 
+    private ?string $lastAliasFile = null;
+
+    private bool $lastAliasResult = false;
+
     public function __construct(private readonly bool $functions = false, private readonly bool $sameOnly = false) {}
 
     public function reset(): void
@@ -64,6 +68,8 @@ final class AssertionQualityHook implements MethodCallAnalysisHook
         $this->lastScopes = [];
         $this->lastCallSource = null;
         $this->lastCallIndex = [];
+        $this->lastAliasFile = null;
+        $this->lastAliasResult = false;
     }
 
     public function getTargets(): array
@@ -95,7 +101,7 @@ final class AssertionQualityHook implements MethodCallAnalysisHook
             $text = $source->getText($node);
             $open = strpos($text, '(');
             $callee = $open === false ? $text : substr($text, 0, $open);
-            if (stripos($callee, 'assert') === false) {
+            if (stripos($callee, 'assert') === false && !$this->hasAliasedPhpUnitAssertImport($context->analysis->file, $source->contents)) {
                 return;
             }
             $source = $context->analysis->getSourceFile();
@@ -117,6 +123,18 @@ final class AssertionQualityHook implements MethodCallAnalysisHook
             $node = $this->findCall($source, $node);
         }
         $this->analyzeCall($context, $source, $node);
+    }
+
+    private function hasAliasedPhpUnitAssertImport(string $file, string $contents): bool
+    {
+        if ($this->lastAliasFile !== $file) {
+            $this->lastAliasFile = $file;
+            $this->lastAliasResult = stripos($contents, 'use function') !== false
+                && stripos($contents, 'PHPUnit\\Framework') !== false
+                && preg_match('/\bas\s+[A-Za-z_]/i', $contents) === 1;
+        }
+
+        return $this->lastAliasResult;
     }
 
     private function findCall(SourceFile $source, Node $target): Node

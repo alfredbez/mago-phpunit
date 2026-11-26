@@ -426,11 +426,16 @@ $expected[false]['tests/fixtures/DataProviderClosureCounter.php'] = $closureCoun
 $expected[true]['tests/fixtures/DataProviderClosureCounter.php'] = $closureCounterIssues;
 $expected[false]['tests/fixtures/PlainMockCallContracts.php'] = [
     'alfredbez/phpunit/mock-call-on-plain-type' => 8,
-    'non-existent-method' => 15,
+    'non-existent-method' => 17,
 ];
 $expected[true]['tests/fixtures/PlainMockCallContracts.php'] = [
-    'non-existent-method' => 23,
+    'non-existent-method' => 25,
 ];
+$expected[false]['tests/fixtures/AliasedAssertionFunctions.php'] = [
+    'alfredbez/phpunit/assert-same-count' => 1,
+    'alfredbez/phpunit/redundant-assertion' => 1,
+];
+$expected[true]['tests/fixtures/AliasedAssertionFunctions.php'] = [];
 
 foreach ([false => 'with extension', true => '--no-extensions'] as $disabled => $label) {
     $issues = $disabled ? $without : $with;

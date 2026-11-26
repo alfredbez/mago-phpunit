@@ -1092,7 +1092,18 @@ final class LegacyMockSourceIndex
         if ($arg === [] || $arg[0]->id === T_ELLIPSIS) {
             return false;
         }
-        // Unwrap enclosing parentheses.
+        return $this->isArgTokensCompatible($arg, $at, $methodLower, $owner, $codebase, 0);
+    }
+
+    /** @param list<PhpToken> $arg */
+    private function isArgTokensCompatible(
+        array $arg,
+        int $at,
+        string $methodLower,
+        ?string $owner,
+        ?Codebase $codebase,
+        int $depth,
+    ): bool {
         while (count($arg) >= 2 && $arg[0]->text === '(' && $arg[count($arg) - 1]->text === ')') {
             $d = 0;
             $wrapsAll = true;
@@ -1117,24 +1128,19 @@ final class LegacyMockSourceIndex
         }
 
         $first = $arg[0];
-        // String literals (single-quoted, double-quoted, heredoc/nowdoc).
         if ($first->id === T_CONSTANT_ENCAPSED_STRING || $first->id === T_START_HEREDOC || $first->text === '"') {
             return $methodLower === 'method';
         }
-        // Array literals.
         if ($first->text === '[' || $first->id === T_ARRAY) {
             return false;
         }
-        // Numeric literals (optionally signed).
         if (in_array($first->id, [T_LNUMBER, T_DNUMBER], true)
             || (in_array($first->text, ['+', '-'], true) && isset($arg[1]) && in_array($arg[1]->id, [T_LNUMBER, T_DNUMBER], true) && count($arg) === 2)) {
             return false;
         }
-        // Null and boolean literals.
         if (count($arg) === 1 && $first->id === T_STRING && in_array(strtolower($first->text), ['null', 'true', 'false'], true)) {
             return false;
         }
-        // `new ClassName(...)`.
         if ($first->id === T_NEW && isset($arg[1]) && $this->isName($arg[1]->text) && !in_array(strtolower($arg[1]->text), ['self', 'parent', 'static'], true)) {
             if ($codebase === null) {
                 return true;
@@ -1142,10 +1148,15 @@ final class LegacyMockSourceIndex
             $resolved = $this->resolve($arg[1]->text, $at);
             return LegacyMockCalls::isTypeCompatibleWithPlainCall($codebase, $methodLower, Type::namedObject($resolved));
         }
-        // Single variable `$var`: resolve parameter type in enclosing scope if available.
-        if (count($arg) === 1 && $first->id === T_VARIABLE && $codebase !== null) {
-            $scope = $this->enclosing($at, ['method', 'function']);
-            if ($scope !== null && $scope['name'] !== null) {
+        if (count($arg) === 1 && $first->id === T_VARIABLE) {
+            $scope = $this->enclosing($at, ['method', 'function', 'closure']);
+            if ($scope !== null && $depth < 3) {
+                $assigned = $this->latestLocalAssignmentRhs($scope['body'], $at, $first->text);
+                if ($assigned !== null) {
+                    return $this->isArgTokensCompatible($assigned['tokens'], $assigned['at'], $methodLower, $owner, $codebase, $depth + 1);
+                }
+            }
+            if ($codebase !== null && $scope !== null && $scope['name'] !== null) {
                 $fnId = $scope['kind'] === 'method' && $owner !== null
                     ? new FunctionLikeIdentifier(FunctionLikeKind::Method, $scope['name'], $owner)
                     : ($scope['kind'] === 'function' ? new FunctionLikeIdentifier(FunctionLikeKind::Function_, $scope['name']) : null);
@@ -1157,14 +1168,63 @@ final class LegacyMockSourceIndex
                     }
                 }
             }
-            return true;
+            return false;
         }
-        // `$this->prop` property access.
         if (count($arg) === 3 && $first->text === '$this' && $arg[1]->text === '->' && $arg[2]->id === T_STRING && $owner !== null && $codebase !== null) {
             $propType = $codebase->getProperty($owner, '$' . $arg[2]->text)?->type?->type;
             return LegacyMockCalls::isTypeCompatibleWithPlainCall($codebase, $methodLower, $propType);
         }
+        if (count($arg) >= 4 && $owner !== null && $codebase !== null
+            && (($first->text === '$this' && $arg[1]->text === '->')
+                || (in_array(strtolower($first->text), ['self', 'static'], true) && $arg[1]->id === T_DOUBLE_COLON))
+            && $arg[2]->id === T_STRING && $arg[3]->text === '(') {
+            $returnType = $codebase->getMethod($owner, $arg[2]->text)?->returnType?->type;
+            return LegacyMockCalls::isTypeCompatibleWithPlainCall($codebase, $methodLower, $returnType);
+        }
 
         return true;
+    }
+
+    /** @return null|array{tokens: list<PhpToken>, at: int} */
+    private function latestLocalAssignmentRhs(int $body, int $before, string $variable): ?array
+    {
+        $end = $this->pairs[$body] ?? $before;
+        $limit = min($before, $end);
+        $braceDepth = 0;
+        $latest = null;
+        $targetScope = $this->enclosing($before, ['method', 'function', 'closure']);
+        for ($i = $body + 1; $i < $limit; $i++) {
+            $text = $this->tokens[$i]->text;
+            if ($text === '{') {
+                $braceDepth++;
+                continue;
+            }
+            if ($text === '}') {
+                $braceDepth = max(0, $braceDepth - 1);
+                continue;
+            }
+            if ($this->tokens[$i]->id !== T_VARIABLE || $text !== $variable) {
+                continue;
+            }
+            if (!isset($this->tokens[$i + 1]) || $this->tokens[$i + 1]->text !== '=') {
+                continue;
+            }
+            if ($this->enclosing($i, ['method', 'function', 'closure']) !== $targetScope) {
+                continue;
+            }
+            if ($braceDepth > 0) {
+                $latest = null;
+                continue;
+            }
+            $rhsStart = $i + 2;
+            $rhsEnd = $this->expressionEnd($rhsStart);
+            $rhsTokens = [];
+            for ($j = $rhsStart; $j < $rhsEnd && $j < $limit; $j++) {
+                $rhsTokens[] = $this->tokens[$j];
+            }
+            $latest = $rhsTokens !== [] ? ['tokens' => $rhsTokens, 'at' => $rhsStart] : null;
+        }
+
+        return $latest;
     }
 }

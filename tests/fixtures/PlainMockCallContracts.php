@@ -57,6 +57,8 @@ final class PlainMockCallContractsTest extends TestCase
         $plain->expects();
         $plain->expects($this->once(), 'extra');
         $plain->expects(new \stdClass());
+        $localName = 'store';
+        $plain->expects($localName);
     }
 
     public function testNegativeMethodCalls(
@@ -69,5 +71,7 @@ final class PlainMockCallContractsTest extends TestCase
         $plain->method($num);
         $plain->method(null);
         $plain->method(new \stdClass());
+        $localNumber = 123;
+        $plain->method($localNumber);
     }
 }

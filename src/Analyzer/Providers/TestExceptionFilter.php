@@ -8,6 +8,7 @@ use Mago\Sdk\Analyzer\IssueFilterContext;
 use Mago\Sdk\Analyzer\IssueFilterDecision;
 use Mago\Sdk\Analyzer\IssueFilterHook;
 
+/** @internal */
 final class TestExceptionFilter implements IssueFilterHook
 {
     public function getCodes(): array

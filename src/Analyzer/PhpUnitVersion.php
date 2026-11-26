@@ -8,6 +8,8 @@ use Mago\Sdk\Analyzer\Codebase;
 
 /**
  * Infers installed PHPUnit major capabilities from stable codebase symbols.
+ *
+ * @internal
  */
 final class PhpUnitVersion
 {

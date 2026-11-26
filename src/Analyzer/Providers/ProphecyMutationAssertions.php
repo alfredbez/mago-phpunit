@@ -14,6 +14,7 @@ use Mago\Sdk\Analyzer\Assertion\TypeAssertionKind;
 use Mago\Sdk\Analyzer\Type;
 use Mago\Sdk\Analyzer\Type\NamedObjectType;
 
+/** @internal */
 final class ProphecyMutationAssertions implements MethodAssertionProvider
 {
     public function getTargets(): array

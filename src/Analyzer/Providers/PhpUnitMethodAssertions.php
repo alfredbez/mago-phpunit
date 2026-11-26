@@ -41,6 +41,8 @@ use Mago\Sdk\Analyzer\Type\StringType;
 
 /**
  * Narrows PHPUnit Assert methods that lack native @phpstan-assert/@psalm-assert annotations.
+ *
+ * @internal
  */
 final class PhpUnitMethodAssertions implements MethodAssertionProvider
 {
@@ -500,10 +502,6 @@ final class PhpUnitMethodAssertions implements MethodAssertionProvider
 
     private static function isPureInt(Type $type): bool
     {
-        if ($type->atomicTypes === []) {
-            return false;
-        }
-
         foreach ($type->atomicTypes as $atomic) {
             if (!$atomic instanceof ScalarType || $atomic->kind !== ScalarTypeKind::Integer) {
                 return false;
@@ -530,10 +528,6 @@ final class PhpUnitMethodAssertions implements MethodAssertionProvider
 
     private static function isNonEmptyString(Type $type): bool
     {
-        if ($type->atomicTypes === []) {
-            return false;
-        }
-
         foreach ($type->atomicTypes as $atomic) {
             if (!$atomic instanceof ScalarType) {
                 return false;

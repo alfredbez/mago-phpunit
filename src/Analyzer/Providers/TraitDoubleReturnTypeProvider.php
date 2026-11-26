@@ -10,6 +10,7 @@ use Mago\Sdk\Analyzer\ReturnTypeProviderContext;
 use Mago\Sdk\Analyzer\Type;
 use Mago\Sdk\Analyzer\Type\NamedObjectType;
 
+/** @internal */
 final class TraitDoubleReturnTypeProvider implements MethodReturnTypeProvider
 {
     public function getTargets(): array

@@ -26,6 +26,7 @@ use Mago\Sdk\Reporting\Level;
 use Mago\Sdk\SourceLocation;
 use Mago\Sdk\Syntax\CallExpression;
 
+/** @internal */
 final class ProphecySupport implements MethodCallAnalysisHook
 {
     private const OBJECT = 'Prophecy\\Prophecy\\ObjectProphecy';
@@ -411,7 +412,7 @@ final class ProphecySupport implements MethodCallAnalysisHook
                     $members[] = new NamedObjectType($atomic->name, $atomic->parameters, $atomic->variances, $atomic->static, $atomic->isThis, null, $atomic->remappedParameters);
                 }
                 foreach ($atomic->intersections ?? [] as $intersection) {
-                    if (!$replaceClass || ($intersection instanceof NamedObjectType && $context->codebase->interfaceExists($intersection->name))) {
+                    if ($intersection instanceof NamedObjectType && (!$replaceClass || $context->codebase->interfaceExists($intersection->name))) {
                         $members[] = $intersection;
                     }
                 }

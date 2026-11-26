@@ -22,6 +22,8 @@ use Mago\Sdk\Syntax\SourceFile;
  * Validates that classes, traits, methods, and functions referenced by PHPUnit coverage
  * attributes (#[CoversClass], #[CoversTrait], #[CoversMethod], #[CoversFunction],
  * #[UsesClass], #[UsesTrait], #[UsesMethod], #[UsesFunction]) exist in the codebase.
+ *
+ * @internal
  */
 final class CoverageTargetsHook implements ClassLikeAnalysisHook
 {

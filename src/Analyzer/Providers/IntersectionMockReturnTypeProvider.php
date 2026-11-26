@@ -18,6 +18,8 @@ use Mago\Sdk\Analyzer\Type\NamedObjectType;
  * Narrows TestCase::createMockForIntersectionOfInterfaces() and
  * TestCase::createStubForIntersectionOfInterfaces() when passed a literal
  * non-optional list of at least two distinct existing interfaces.
+ *
+ * @internal
  */
 final class IntersectionMockReturnTypeProvider implements MethodReturnTypeProvider
 {

@@ -8,6 +8,7 @@ use Mago\Sdk\Analyzer\MethodReturnTypeProvider;
 use Mago\Sdk\Analyzer\ReturnTypeProviderContext;
 use Mago\Sdk\Analyzer\Type;
 
+/** @internal */
 final class ProphecyReturnTypeProvider implements MethodReturnTypeProvider
 {
     public function getTargets(): array

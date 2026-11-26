@@ -25,6 +25,7 @@ use Mago\Sdk\Syntax\SourceFile;
 use PhpToken;
 use WeakReference;
 
+/** @internal */
 final class LegacyMockCalls implements NodeAnalysisHook
 {
     private const MOCK = 'phpunit\\framework\\mockobject\\mockobject';

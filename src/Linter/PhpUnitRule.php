@@ -15,6 +15,7 @@ use Mago\Sdk\Span;
 use Mago\Sdk\Syntax\Node;
 use Mago\Sdk\Syntax\NodeKind;
 
+/** @internal */
 final class PhpUnitRule implements Rule
 {
     private const RULES = [

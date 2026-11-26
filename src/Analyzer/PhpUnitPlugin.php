@@ -6,6 +6,7 @@ namespace AlfredBez\MagoPhpunit\Analyzer;
 
 use AlfredBez\MagoPhpunit\Analyzer\Providers\AssertArrayHasKeyAssertion;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\AssertArrayHasKeyFunctionAssertion;
+use AlfredBez\MagoPhpunit\Analyzer\Providers\AssertionQualityFunctionHook;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\AssertionQualityHook;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\ContainsOnlyInstancesAssertion;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\ContainsOnlyInstancesFunctionAssertion;
@@ -80,7 +81,7 @@ final class PhpUnitPlugin implements Plugin
         $prophecy = new ProphecySupport();
         $assertionQuality = new AssertionQualityHook();
         $assertionQualitySame = new AssertionQualityHook(sameOnly: true);
-        $assertionQualityFunctions = new AssertionQualityHook(true);
+        $assertionQualityFunctions = new AssertionQualityFunctionHook();
         $mockBuilderHook = new MockBuilderAndExpectationHook();
 
         $resetters = [

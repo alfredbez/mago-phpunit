@@ -10,6 +10,8 @@ use Mago\Sdk\Analyzer\ClassTarget;
 
 /**
  * PHPUnit runs setUp() and Before hooks before every test method.
+ *
+ * @internal
  */
 final class SetUpInitializer implements ClassInitializerProvider
 {
@@ -45,7 +47,7 @@ final class SetUpInitializer implements ClassInitializerProvider
         );
         $classKey = strtolower($context->class->name);
         foreach ($beforeMethods as $method) {
-            if (strtolower($method->method->class) === $classKey) {
+            if (strtolower($method->method->class) === $classKey && $method->method->member !== '') {
                 $initializers[] = $method->method->member;
             }
         }

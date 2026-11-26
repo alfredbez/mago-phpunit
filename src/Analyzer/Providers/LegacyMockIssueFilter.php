@@ -11,6 +11,7 @@ use Mago\Sdk\Analyzer\Type;
 use Mago\Sdk\Analyzer\Type\NamedObjectType;
 use Mago\Sdk\Reporting\AnnotationKind;
 
+/** @internal */
 final class LegacyMockIssueFilter implements IssueFilterHook
 {
     public function __construct(private readonly LegacyMockSourceIndex $sourceIndex) {}

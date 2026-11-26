@@ -16,6 +16,7 @@ use Mago\Sdk\Analyzer\Type\ScalarType;
 use Mago\Sdk\Span;
 use PhpToken;
 
+/** @internal */
 final class LegacyMockSourceIndex
 {
     /** @var array<string, self> */
@@ -133,17 +134,21 @@ final class LegacyMockSourceIndex
         }
         $this->tokens = array_values(array_filter($tokens, static fn(PhpToken $token): bool => !$token->isIgnorable() && !in_array($token->id, [T_CONSTANT_ENCAPSED_STRING, T_ENCAPSED_AND_WHITESPACE, T_INLINE_HTML], true)));
         $this->pairs = $this->scopes = $this->namespaces = $this->imports = $this->functionImports = [];
+        /** @var list<int> $stack */
         $stack = [];
         foreach ($this->tokens as $index => $token) {
             if (in_array($token->id, [T_CURLY_OPEN, T_DOLLAR_OPEN_CURLY_BRACES, T_ATTRIBUTE], true) || in_array($token->text, ['(', '[', '{'], true)) {
                 $stack[] = $index;
             } elseif (in_array($token->text, [')', ']', '}'], true)) {
                 $open = array_pop($stack);
-                $opening = $open === null ? null : $this->tokens[$open];
+                if ($open === null) {
+                    return;
+                }
+                $opening = $this->tokens[$open];
                 $expected = match ($token->text) { ')' => '(', ']' => '[', '}' => '{' };
-                if ($opening === null || ($opening->text !== $expected
+                if ($opening->text !== $expected
                     && !($expected === '{' && in_array($opening->id, [T_CURLY_OPEN, T_DOLLAR_OPEN_CURLY_BRACES], true))
-                    && !($expected === '[' && $opening->id === T_ATTRIBUTE))) {
+                    && !($expected === '[' && $opening->id === T_ATTRIBUTE)) {
                     return;
                 }
                 $this->pairs[$open] = $index;

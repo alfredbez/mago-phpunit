@@ -18,6 +18,8 @@ use Mago\Sdk\Analyzer\Type\ArrayKeyKind;
  * After assertArrayHasKey() with a literal key, that key exists on the array argument.
  *
  * Non-literal keys contribute no fact, so a variable key cannot narrow a different index.
+ *
+ * @internal
  */
 final class AssertArrayHasKeyAssertion implements MethodAssertionProvider
 {

@@ -13,6 +13,7 @@ use Mago\Sdk\Analyzer\Type\ListType;
 use Mago\Sdk\Analyzer\Type\SimpleAtomicType;
 use Mago\Sdk\Analyzer\Type\SimpleAtomicTypeKind;
 
+/** @internal */
 final class ExactArrayCountReturnTypeProvider implements FunctionReturnTypeProvider
 {
     public function getTargets(): array

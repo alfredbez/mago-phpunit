@@ -67,6 +67,8 @@ use WeakReference;
  *
  * Method metadata only keeps the declared return type (`array`, `iterable`), so
  * row shapes are read from the inferred type of each literal return or yield.
+ *
+ * @internal
  */
 final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysisHook
 {
@@ -514,7 +516,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
      * Single-pass extraction of data providers, TestWith presence, and method dependencies on one method node.
      *
      * @return array{
-     *     0: list<array{class: string, method: string, node: ?Node, validateCount: bool, external: bool}>,
+     *     0: list<array{class: string, method: string, node: ?Node, validateCount: bool, external: bool, fromAttribute: bool, span: Span}>,
      *     1: bool,
      *     2: list<array{class: ?string, method: ?string, span: Span, external: bool}>,
      * }
@@ -1441,6 +1443,21 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
         }
     }
 
+    /**
+     * @param array{
+     *     required: int,
+     *     accepted: int,
+     *     variadic: bool,
+     *     names: list<string>,
+     *     requiredNames: list<string>,
+     *     positional: list<array{name: string, type: ?Type}>,
+     *     named: array<string, ?Type>,
+     *     variadicParameter: ?array{name: string, type: ?Type},
+     *     dependencies: int,
+     * } $schema
+     * @param list<array{class: ?string, method: ?string, span: Span, external: bool}> $dependencies
+     * @param array<int, true> $checkedDepOffsets
+     */
     private function checkDocblockTestWith(NodeAnalysisContext $context, SourceFile $source, Node $method, string $test, array $schema, array $dependencies, array &$checkedDepOffsets): void
     {
         $doc = $this->attachedDocblock($source, $method) ?? '';
@@ -1471,6 +1488,29 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
         }
     }
 
+    /**
+     * @param array<string, array{label: string, node: Node}> $methods
+     * @param array{
+     *     methodKey: string,
+     *     label: string,
+     *     node: Node,
+     *     providers: list<array{class: string, method: string, node: ?Node, validateCount: bool, external: bool, fromAttribute: bool, span: Span}>,
+     *     hasTestWith: bool,
+     *     dependencies: list<array{class: ?string, method: ?string, span: Span, external: bool}>,
+     *     astSchema: ?array{
+     *         required: int,
+     *         accepted: int,
+     *         variadic: bool,
+     *         names: list<string>,
+     *         requiredNames: list<string>,
+     *         positional: list<array{name: string, type: ?Type}>,
+     *         named: array<string, ?Type>,
+     *         variadicParameter: ?array{name: string, type: ?Type},
+     *         dependencies: int,
+     *     },
+     * } $item
+     * @param array<int, array{isTest: bool, empty: bool, keys: array<string, Span>, duplicates: list<array{0: string, 1: Span}>}> $providerCompleteness
+     */
     private function checkCompleteness(NodeAnalysisContext $context, SourceFile $source, array $methods, array $item, int $major, array &$providerCompleteness): void
     {
         $allEmpty = $item['providers'] !== [];
@@ -2297,7 +2337,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
             }
         }
 
-        return $atomics === [] ? null : $atomics;
+        return $atomics;
     }
 
     private function isFastPathContained(Type $argumentType, Type $parameterType): bool
@@ -2713,10 +2753,6 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
 
     private function isCheckableType(Type $type): bool
     {
-        if ($type->atomicTypes === []) {
-            return false;
-        }
-
         foreach ($type->atomicTypes as $atomic) {
             if ($atomic instanceof MixedType) {
                 return false;
@@ -2828,10 +2864,6 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
 
     private function isDefinitelyNotArray(Type $type): bool
     {
-        if ($type->atomicTypes === []) {
-            return false;
-        }
-
         foreach ($type->atomicTypes as $atomic) {
             if ($atomic instanceof ListType || $atomic instanceof KeyedArrayType || $atomic instanceof MixedType) {
                 return false;

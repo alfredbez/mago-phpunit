@@ -20,6 +20,8 @@ use Mago\Sdk\SourceLocation;
 /**
  * Validates literal method names passed to PHPUnit MockObject::method() and Stub::method()
  * against the mocked class or interface(s).
+ *
+ * @internal
  */
 final class MockMethodCallHook implements MethodCallAnalysisHook
 {

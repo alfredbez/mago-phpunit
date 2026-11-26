@@ -44,6 +44,8 @@ use WeakReference;
  * Validates PHPUnit MockBuilder::onlyMethods()/addMethods() method lists and
  * InvocationStubber/InvocationMocker willReturn()/willReturnOnConsecutiveCalls()
  * values against the mocked method's native declared return type.
+ *
+ * @internal
  */
 final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
 {
@@ -699,10 +701,6 @@ final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
 
     private static function isThrowingStub(NodeAnalysisContext $context, Type $type): bool
     {
-        if ($type->atomicTypes === []) {
-            return false;
-        }
-
         $allExceptionStub = true;
         foreach ($type->atomicTypes as $atomic) {
             if (!$atomic instanceof NamedObjectType || strtolower($atomic->name) !== 'phpunit\\framework\\mockobject\\stub\\exception') {
@@ -719,10 +717,6 @@ final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
 
     private static function isStubObject(NodeAnalysisContext $context, Type $type): bool
     {
-        if ($type->atomicTypes === []) {
-            return false;
-        }
-
         $allKnown = true;
         foreach ($type->atomicTypes as $atomic) {
             if (!$atomic instanceof NamedObjectType || !isset(self::STUB_IMPLEMENTATIONS[strtolower($atomic->name)])) {
@@ -739,10 +733,6 @@ final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
 
     private static function containsStubObject(NodeAnalysisContext $context, Type $type): bool
     {
-        if ($type->atomicTypes === []) {
-            return false;
-        }
-
         $stubInterface = Type::namedObject(self::STUB_INTERFACE);
         foreach ($type->atomicTypes as $atomic) {
             if ($atomic instanceof NamedObjectType && isset(self::STUB_IMPLEMENTATIONS[strtolower($atomic->name)])) {
@@ -1661,6 +1651,7 @@ final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
                 $op = $parts[1] ?? null;
                 $rhs = $parts[2] ?? null;
                 $opText = $op !== null ? trim($source->getText($op)) : '';
+                $rhsHasReference = $rhs !== null && preg_match('/(?:^|[(\[,]|=>)\s*&\s*\$/', $source->getText($rhs)) === 1;
 
                 if ($lhs !== null) {
                     if (
@@ -1671,7 +1662,6 @@ final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
                     }
 
                     $unwrappedLhs = $this->unwrap($source, $lhs);
-                    $rhsHasReference = $rhs !== null && preg_match('/(?:^|[(\[,]|=>)\s*&\s*\$/', $source->getText($rhs)) === 1;
                     if ($unwrappedLhs !== null && $unwrappedLhs->kind === NodeKind::DirectVariable && $rhs !== null) {
                         $name = $source->getText($unwrappedLhs);
                         if ($opText !== '=' || $rhsHasReference) {
@@ -2001,10 +1991,6 @@ final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
         array $targets,
         ?string $declaringClass,
     ): Type {
-        if ($type->atomicTypes === []) {
-            return $type;
-        }
-
         $changed = false;
         /** @var list<AtomicType> $resolvedAtomics */
         $resolvedAtomics = [];
@@ -2146,10 +2132,6 @@ final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
             }
         }
 
-        if ($classNames === []) {
-            return false;
-        }
-
         foreach ($classNames as $className) {
             $declaring = $context->codebase->getDeclaringMethod($className, $helperMethodName);
             if ($declaring === null || strtolower(ltrim($declaring->identifier->class ?? '', '\\')) !== 'phpunit\\framework\\testcase') {
@@ -2230,10 +2212,6 @@ final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
 
     private function resolveCallbackReturnType(NodeAnalysisContext $context, Type $callbackType): ?Type
     {
-        if ($callbackType->atomicTypes === []) {
-            return null;
-        }
-
         $returnTypes = [];
         foreach ($callbackType->atomicTypes as $atomic) {
             $resolved = $this->resolveAtomicCallbackReturnType($context, $atomic);
@@ -2241,10 +2219,6 @@ final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
                 return null;
             }
             $returnTypes[] = self::isVoid($resolved) ? Type::null() : $resolved;
-        }
-
-        if ($returnTypes === []) {
-            return null;
         }
 
         $combined = $returnTypes[0];
@@ -2434,10 +2408,6 @@ final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
 
     private static function isCheckableDeclaredReturn(Type $type): bool
     {
-        if ($type->atomicTypes === []) {
-            return false;
-        }
-
         foreach ($type->atomicTypes as $atomic) {
             if (self::isUncheckableAtomic($atomic)) {
                 return false;
@@ -2449,10 +2419,6 @@ final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
 
     private static function containsMixedOrTemplate(Type $type): bool
     {
-        if ($type->atomicTypes === []) {
-            return true;
-        }
-
         foreach ($type->atomicTypes as $atomic) {
             if (self::isUncheckableAtomic($atomic)) {
                 return true;

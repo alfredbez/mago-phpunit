@@ -9,6 +9,7 @@ use Mago\Sdk\Analyzer\FunctionAssertionProvider;
 use Mago\Sdk\Analyzer\FunctionTarget;
 use Mago\Sdk\Analyzer\InvocationAssertions;
 
+/** @internal */
 final class PhpUnitFunctionAssertions implements FunctionAssertionProvider
 {
     public function __construct(

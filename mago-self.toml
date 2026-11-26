@@ -1,0 +1,31 @@
+version = "1"
+php-version = "8.3"
+
+[source]
+paths = ["src", "bin"]
+includes = ["vendor"]
+
+[analyzer]
+find-unused-definitions = false
+find-unused-expressions = false
+check-property-initialization = false
+ignore = [
+    "less-specific-argument",
+    "less-specific-return-statement",
+    "mixed-argument",
+    "mixed-array-assignment",
+    "mixed-assignment",
+    "mixed-return-statement",
+    "possibly-null-argument",
+    "possibly-null-array-access",
+    "possibly-null-iterator",
+    "possibly-null-property-access",
+    "possibly-undefined-array-access",
+    "possibly-undefined-string-offset",
+    "possibly-invalid-argument",
+    "possibly-invalid-operand",
+    "redundant-type-inference",
+    "reference-constraint-violation",
+    "unevaluated-code",
+    "unused-parameter",
+]

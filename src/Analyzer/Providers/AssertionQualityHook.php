@@ -5,12 +5,11 @@ declare(strict_types=1);
 namespace AlfredBez\MagoPhpunit\Analyzer\Providers;
 
 use Mago\Sdk\Analyzer\FileAnalysisRequirement;
-use Mago\Sdk\Analyzer\NodeAnalysisHook;
-use Mago\Sdk\Syntax\NodeKind;
 use Mago\Sdk\Analyzer\MethodCallAnalysisHook;
 use Mago\Sdk\Analyzer\MethodTarget;
 use Mago\Sdk\Analyzer\NodeAnalysisContext;
 use Mago\Sdk\Analyzer\Type;
+use Mago\Sdk\Analyzer\Type\ClassLikeStringType;
 use Mago\Sdk\Analyzer\Type\ClassLikeStringVariant;
 use Mago\Sdk\Analyzer\Type\MixedType;
 use Mago\Sdk\Analyzer\Type\ResourceType;
@@ -23,19 +22,26 @@ use Mago\Sdk\Reporting\Level;
 use Mago\Sdk\SourceLocation;
 use Mago\Sdk\Syntax\CallExpression;
 use Mago\Sdk\Syntax\Node;
+use Mago\Sdk\Syntax\NodeKind;
 use Mago\Sdk\Syntax\SourceFile;
 use WeakReference;
 
-final class AssertionQualityHook implements MethodCallAnalysisHook, NodeAnalysisHook
+/** @internal */
+final class AssertionQualityHook implements MethodCallAnalysisHook
 {
-    private const METHODS = [
+    private const NON_SAME_METHODS = [
         'assertNotNull', 'assertNull', 'assertTrue', 'assertFalse', 'assertInstanceOf',
         'assertIsArray', 'assertIsBool', 'assertIsCallable', 'assertIsFloat', 'assertIsInt',
         'assertIsIterable', 'assertIsNumeric', 'assertIsObject', 'assertIsResource',
-        'assertIsScalar', 'assertIsString', 'assertIsList', 'assertIsClosedResource', 'assertSame',
+        'assertIsScalar', 'assertIsString', 'assertIsList', 'assertIsClosedResource',
         'assertIsNotArray', 'assertIsNotBool', 'assertIsNotCallable', 'assertIsNotFloat', 'assertIsNotInt',
         'assertIsNotIterable', 'assertIsNotNumeric', 'assertIsNotObject', 'assertIsNotResource',
         'assertIsNotClosedResource', 'assertIsNotScalar', 'assertIsNotString',
+    ];
+
+    private const METHODS = [
+        ...self::NON_SAME_METHODS,
+        'assertSame',
     ];
 
     /** @var WeakReference<SourceFile>|null */
@@ -62,12 +68,12 @@ final class AssertionQualityHook implements MethodCallAnalysisHook, NodeAnalysis
 
     public function getTargets(): array
     {
-        if ($this->functions) {
-            return [NodeKind::FunctionCall];
+        if ($this->sameOnly) {
+            return [MethodTarget::exact('PHPUnit\\Framework\\Assert', 'assertSame')];
         }
-        $methods = $this->sameOnly ? ['assertSame'] : array_values(array_diff(self::METHODS, ['assertSame']));
         return array_map(
-            fn(string $method) => MethodTarget::exact('PHPUnit\\Framework\\Assert', $method), $methods,
+            static fn (string $method): MethodTarget => MethodTarget::exact('PHPUnit\\Framework\\Assert', $method),
+            self::NON_SAME_METHODS,
         );
     }
 
@@ -211,7 +217,12 @@ final class AssertionQualityHook implements MethodCallAnalysisHook, NodeAnalysis
             [$first] = $arguments['expected'] ?? $arguments[0] ?? [null];
             if ($first instanceof Type && count($first->atomicTypes) === 1) {
                 foreach ($first->atomicTypes as $atomic) {
-                    if (!$atomic instanceof ScalarType || $atomic->kind !== ScalarTypeKind::ClassLikeString || $atomic->refinement?->variant !== ClassLikeStringVariant::Literal) {
+                    if (
+                        !$atomic instanceof ScalarType
+                        || $atomic->kind !== ScalarTypeKind::ClassLikeString
+                        || !$atomic->refinement instanceof ClassLikeStringType
+                        || $atomic->refinement->variant !== ClassLikeStringVariant::Literal
+                    ) {
                         return;
                     }
                     $class = $atomic->refinement->literal;
@@ -356,7 +367,7 @@ final class AssertionQualityHook implements MethodCallAnalysisHook, NodeAnalysis
             $call = CallExpression::fromNode($source, $node);
             $arguments = [];
             foreach ($call->arguments as $argument) {
-                $arguments[] = preg_replace('/\s+/', '', $source->getText($argument->value));
+                $arguments[] = preg_replace('/\s+/', '', $source->getText($argument->value)) ?? '';
             }
             $facts['calls'][] = [
                 'start' => $node->span->start,

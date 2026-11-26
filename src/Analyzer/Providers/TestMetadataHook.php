@@ -17,6 +17,7 @@ use Mago\Sdk\Syntax\NodeKind;
 use Mago\Sdk\Syntax\SourceFile;
 use Mago\Sdk\Syntax\TriviaKind;
 
+/** @internal */
 final class TestMetadataHook implements ClassLikeAnalysisHook
 {
     private const VALUE_TAGS = ['covers', 'coversDefaultClass', 'dataProvider', 'depends', 'testWith', 'requires', 'uses', 'group', 'testdox'];
@@ -157,9 +158,6 @@ final class TestMetadataHook implements ClassLikeAnalysisHook
                     continue;
                 }
                 $version = $context->source->getLiteralString($literals[0]) ?? trim($context->source->getText($literals[0]), "\"' ");
-                if ($version === null) {
-                    continue;
-                }
                 if (preg_match('/^\s*(?:>=|<=|!=|<>|==|>|<|=)/', $version) !== 1) {
                     $this->report($context, $attribute, 'requires-without-operator', 'Use an explicit comparison operator in the required version.');
                 } elseif ($this->requiresCompleteVersion($context) && preg_match('/^\s*(?:>=|<=|!=|<>|==|>|<|=)\s*\d+\.\d+\.\d+(?:[-+][^\s]+)?\s*$/', $version) !== 1) {

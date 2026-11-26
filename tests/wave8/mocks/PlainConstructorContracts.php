@@ -50,6 +50,11 @@ function makeTargetFunction(): ConstructedService
 
 final class ConstructorCalls extends CaseBase
 {
+    private static function makeStaticTarget(): ConstructedService
+    {
+        return new ConstructedService();
+    }
+
     private function makeTarget(): ConstructedService
     {
         return new ConstructedService();
@@ -118,6 +123,7 @@ final class ConstructorCalls extends CaseBase
         $plain = $this->makeTarget();
         $plain->expects(null); // constructor-factory-this-assigned
         TargetFactory::create()->method('run'); // constructor-factory-static
+        static::makeStaticTarget()->method('run'); // constructor-factory-static-final
         makeTargetFunction()->method('run'); // constructor-factory-function
         /** @var Target $annotated */
         $annotated = $this->makeMixed();

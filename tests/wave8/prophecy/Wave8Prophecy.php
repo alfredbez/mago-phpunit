@@ -139,6 +139,13 @@ final class ProphecyTest extends TestCase
         $legacy->find(1);
     }
 
+    /** @param ?ObjectProphecy<Service> $nullable */
+    public function nullableProphecyNoUnionWarning(?ObjectProphecy $nullable): void
+    {
+        $nullable?->find(1);
+        $nullable->find(1);
+    }
+
     public function standaloneType(): Service
     {
         $prophecy = $this->prophesize();

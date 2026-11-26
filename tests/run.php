@@ -163,9 +163,9 @@ $expected[false]['tests/fixtures/ContainsOnly.php'] = $containsOnlyNarrowed;
 $expected[true]['tests/fixtures/ContainsOnly.php'] = $phpunitMajor >= 11
     ? $containsOnlyNarrowed
     : [
-        'mixed-assignment' => 12,
-        'mixed-method-access' => 6,
-        'mixed-return-statement' => 6,
+        'mixed-assignment' => 14,
+        'mixed-method-access' => 7,
+        'mixed-return-statement' => 7,
     ];
 $expected[false]['tests/fixtures/AssertionsParity.php'] = [
     'undefined-string-array-index' => 2,
@@ -1040,7 +1040,7 @@ if ($failures > 0) {
     exit(1);
 }
 
-foreach (glob(__DIR__ . '/wave8-*.php') as $contract) {
+foreach (array_merge(glob(__DIR__ . '/wave8-*.php') ?: [], [__DIR__ . '/contains-only-function.php']) as $contract) {
     $result = run([PHP_BINARY, $contract]);
     fwrite(STDOUT, $result['stdout']);
     fwrite(STDERR, $result['stderr']);

@@ -7,6 +7,7 @@ namespace AlfredBez\MagoPhpunit\Analyzer;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\AssertArrayHasKeyAssertion;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\AssertArrayHasKeyFunctionAssertion;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\ContainsOnlyInstancesAssertion;
+use AlfredBez\MagoPhpunit\Analyzer\Providers\ContainsOnlyInstancesFunctionAssertion;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\CoverageTargetsHook;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\DataProviderArguments;
 use AlfredBez\MagoPhpunit\Analyzer\Providers\ExactArrayCountReturnTypeProvider;
@@ -59,6 +60,7 @@ final class PhpUnitPlugin implements Plugin
         $registry->registerFunctionAssertionProvider(new PhpUnitFunctionAssertions());
         $registry->registerFunctionReturnTypeProvider(new ExactArrayCountReturnTypeProvider());
         $registry->registerMethodAssertionProvider(new ContainsOnlyInstancesAssertion());
+        $registry->registerFunctionAssertionProvider(new ContainsOnlyInstancesFunctionAssertion());
         $registry->registerMethodReturnTypeProvider(new IntersectionMockReturnTypeProvider());
         $registry->registerMethodReturnTypeProvider(new TraitDoubleReturnTypeProvider());
         $registry->registerMethodReturnTypeProvider(new \AlfredBez\MagoPhpunit\Analyzer\Providers\LegacyMockReturnTypeProvider());

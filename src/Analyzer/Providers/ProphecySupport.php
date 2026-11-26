@@ -280,7 +280,7 @@ final class ProphecySupport implements MethodCallAnalysisHook
                     $anyValues = Type::namedObject('Prophecy\\Argument\\Token\\AnyValuesToken');
                     foreach ($setup->arguments as $argument) {
                         $argType = $context->analysis->getExpressionType($argument->value);
-                        $complete = $complete && !$argument->unpacked && $argument->name === null && !$argument->placeholder
+                        $complete = $complete && !$argument->unpacked && $argument->name === null
                             && ($argType === null || !$context->types->isContainedBy($argType, $anyValues));
                     }
                     if ($complete) {
@@ -458,12 +458,19 @@ final class ProphecySupport implements MethodCallAnalysisHook
         if ($type === null || count($type->atomicTypes) < 2) {
             return false;
         }
+        $hasProphecy = false;
+        $hasOther = false;
         foreach ($type->atomicTypes as $atomic) {
             if ($atomic instanceof NamedObjectType && strcasecmp($atomic->name, self::OBJECT) === 0) {
-                return true;
+                $hasProphecy = true;
+                continue;
             }
+            if ($atomic instanceof SimpleAtomicType && $atomic->kind === SimpleAtomicTypeKind::Null) {
+                continue;
+            }
+            $hasOther = true;
         }
-        return false;
+        return $hasProphecy && $hasOther;
     }
 
     private function hasIntersection(?Type $type): bool

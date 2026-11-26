@@ -69,6 +69,19 @@ final class ContainsOnlyTest extends TestCase
         return $title;
     }
 
+    /** @param list<mixed> $items */
+    public function testFunction(array $items): string
+    {
+        \PHPUnit\Framework\assertContainsOnlyInstancesOf(Book::class, $items);
+
+        $title = '';
+        foreach ($items as $item) {
+            $title = $item->title();
+        }
+
+        return $title;
+    }
+
     /**
      * A non-literal class name must not turn the values into Book.
      *

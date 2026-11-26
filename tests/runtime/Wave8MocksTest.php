@@ -66,7 +66,7 @@ final class Wave8MocksTest extends TestCase
     public function testExplicitPartialMockSupportsProtectedMethods(): void
     {
         $mock = $this->getMockBuilder(Wave8MockTarget::class)->onlyMethods(['guarded'])->getMock();
-        $mock->method('guarded');
+        $mock->expects(self::never())->method('guarded');
         self::assertInstanceOf(Wave8MockTarget::class, $mock);
     }
 

@@ -157,7 +157,7 @@ foreach ([false, true] as $disabled) {
         'direct-method', 'direct-expects', 'wrapped', 'arguments', 'namespace-relative',
         'assigned-method', 'assigned-expects', 'reference-binding', 'intervening-statement',
         'dynamic-class', 'conditional-expression', 'factory-this-direct', 'factory-this-assigned',
-        'factory-static', 'factory-function', 'var-single-class',
+        'factory-static', 'factory-static-final', 'factory-function', 'var-single-class',
     ] as $case) {
         $constructorExpected['constructor-' . $case] = [$disabled ? 1 : 0, $disabled ? 0 : 1];
     }

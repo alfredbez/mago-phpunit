@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace AlfredBez\MagoPhpunit\Analyzer\Providers;
 
 use Mago\Sdk\Analyzer\Codebase;
+use Mago\Sdk\Analyzer\Metadata\MetadataFlags;
 use Mago\Sdk\Analyzer\Type;
 use Mago\Sdk\Analyzer\Type\ClassLikeStringType;
 use Mago\Sdk\Analyzer\Type\ClassLikeStringVariant;
@@ -424,7 +425,7 @@ final class LegacyMockSourceIndex
             $lower = strtolower($classText);
             $targetClass = match (true) {
                 $lower === 'self' => $owner,
-                $lower === 'static' => ($codebase->getClassLike($owner)?->final ?? false) ? $owner : null,
+                $lower === 'static' => ($codebase->getClassLike($owner)?->flags->contains(MetadataFlags::FINAL) ?? false) ? $owner : null,
                 $lower === 'parent' => null,
                 $this->isName($classText) => $this->resolve($classText, $start),
                 default => null,

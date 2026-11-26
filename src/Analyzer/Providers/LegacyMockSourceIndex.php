@@ -35,7 +35,7 @@ final class LegacyMockSourceIndex
     /** @var list<array{start: int, namespace: int, aliases: array<string, string>}> */
     private array $functionImports = [];
 
-    /** @return null|array{class: ?string, function: ?FunctionLikeIdentifier, variable: ?string, property: ?string, type: ?Type, withoutMock: bool} */
+    /** @return null|array{class: ?string, function: ?FunctionLikeIdentifier, variable: ?string, property: ?string, type: ?Type, withoutMock: bool, plainCallCompatible: bool} */
     public function find(string $file, string $contents, Span $method, Span $receiverSpan, ?Codebase $codebase = null): ?array
     {
         $key = $file . ':' . hash('xxh128', $contents);
@@ -51,18 +51,20 @@ final class LegacyMockSourceIndex
         return $snapshot->findInSnapshot($contents, $method, $receiverSpan, $codebase);
     }
 
-    /** @return null|array{class: ?string, function: ?FunctionLikeIdentifier, variable: ?string, property: ?string, type: ?Type, withoutMock: bool} */
+    /** @return null|array{class: ?string, function: ?FunctionLikeIdentifier, variable: ?string, property: ?string, type: ?Type, withoutMock: bool, plainCallCompatible: bool} */
     private function findInSnapshot(string $contents, Span $method, Span $receiverSpan, ?Codebase $codebase): ?array
     {
         $at = $this->tokenAt($method->start);
         if ($at === null || strcasecmp($this->tokens[$at]->text, 'method') !== 0 && strcasecmp($this->tokens[$at]->text, 'expects') !== 0) {
             return null;
         }
+        $methodLower = strtolower($this->tokens[$at]->text);
         $class = $this->enclosing($at, ['class']);
         $owner = $class === null ? null : $class['name'];
+        $plainCallCompatible = $this->isPlainCallCompatible($at, $contents, $methodLower, $owner, $codebase);
         $constructed = $owner === null ? null : $this->constructedReceiver($at, $receiverSpan, $owner, $codebase);
         if ($constructed !== null) {
-            return ['class' => $owner, 'function' => null, 'variable' => null, 'property' => null, 'type' => $constructed, 'withoutMock' => false];
+            return ['class' => $owner, 'function' => null, 'variable' => null, 'property' => null, 'type' => $constructed, 'withoutMock' => false, 'plainCallCompatible' => $plainCallCompatible];
         }
         $receiver = preg_replace('/\s+/', '', substr($contents, $receiverSpan->start, $receiverSpan->length()));
         if (preg_match('/^\$[a-zA-Z_][a-zA-Z0-9_]*$/D', $receiver) !== 1
@@ -70,7 +72,7 @@ final class LegacyMockSourceIndex
             return null;
         }
         $excluded = $this->excludedCondition($at, $receiver);
-        $result = ['class' => $owner, 'function' => null, 'variable' => null, 'property' => null, 'type' => null, 'withoutMock' => $excluded !== null];
+        $result = ['class' => $owner, 'function' => null, 'variable' => null, 'property' => null, 'type' => null, 'withoutMock' => $excluded !== null, 'plainCallCompatible' => $plainCallCompatible];
         if (isset($property[1])) {
             $scope = $this->enclosing($at, ['method']);
             $excluded = $scope === null ? null : $this->excludedCondition($at, $receiver, $scope['start']);
@@ -1028,5 +1030,133 @@ final class LegacyMockSourceIndex
             }
         }
         return false;
+    }
+
+    private function isPlainCallCompatible(int $at, string $contents, string $methodLower, ?string $owner, ?Codebase $codebase): bool
+    {
+        $open = $at + 1;
+        if (($this->tokens[$open]->text ?? '') !== '(' || !isset($this->pairs[$open])) {
+            return false;
+        }
+        $close = $this->pairs[$open];
+        $openPos = $this->tokens[$open]->pos;
+        $closePos = $this->tokens[$close]->pos;
+        $rawArgs = substr($contents, $openPos + 1, $closePos - $openPos - 1);
+
+        $rawTokens = array_values(array_filter(
+            PhpToken::tokenize('<?php ' . $rawArgs),
+            static fn (PhpToken $t): bool => $t->id !== T_OPEN_TAG && !$t->isIgnorable(),
+        ));
+        if ($rawTokens === []) {
+            return false;
+        }
+
+        // Split top-level arguments on commas at bracket depth 0.
+        $args = [];
+        $current = [];
+        $depth = 0;
+        foreach ($rawTokens as $token) {
+            if ($depth === 0 && $token->text === ',') {
+                $args[] = $current;
+                $current = [];
+                continue;
+            }
+            if (in_array($token->id, [T_CURLY_OPEN, T_DOLLAR_OPEN_CURLY_BRACES, T_ATTRIBUTE], true)
+                || in_array($token->text, ['(', '[', '{'], true)) {
+                $depth++;
+            } elseif (in_array($token->text, [')', ']', '}'], true)) {
+                $depth--;
+            }
+            $current[] = $token;
+        }
+        if ($current !== []) {
+            $args[] = $current;
+        }
+        if (count($args) !== 1 || $args[0] === []) {
+            return false;
+        }
+
+        $arg = $args[0];
+        // Strip named-argument label (`name: expr`).
+        if (count($arg) >= 3 && ($arg[1]->text ?? '') === ':' && preg_match('/^[A-Za-z_\x80-\xff][A-Za-z0-9_\x80-\xff]*$/D', $arg[0]->text) === 1) {
+            $arg = array_slice($arg, 2);
+        }
+        if ($arg === [] || $arg[0]->id === T_ELLIPSIS) {
+            return false;
+        }
+        // Unwrap enclosing parentheses.
+        while (count($arg) >= 2 && $arg[0]->text === '(' && $arg[count($arg) - 1]->text === ')') {
+            $d = 0;
+            $wrapsAll = true;
+            for ($i = 0, $n = count($arg); $i < $n - 1; $i++) {
+                if ($arg[$i]->text === '(') {
+                    $d++;
+                } elseif ($arg[$i]->text === ')') {
+                    $d--;
+                }
+                if ($d === 0) {
+                    $wrapsAll = false;
+                    break;
+                }
+            }
+            if (!$wrapsAll) {
+                break;
+            }
+            $arg = array_slice($arg, 1, -1);
+        }
+        if ($arg === []) {
+            return false;
+        }
+
+        $first = $arg[0];
+        // String literals (single-quoted, double-quoted, heredoc/nowdoc).
+        if ($first->id === T_CONSTANT_ENCAPSED_STRING || $first->id === T_START_HEREDOC || $first->text === '"') {
+            return $methodLower === 'method';
+        }
+        // Array literals.
+        if ($first->text === '[' || $first->id === T_ARRAY) {
+            return false;
+        }
+        // Numeric literals (optionally signed).
+        if (in_array($first->id, [T_LNUMBER, T_DNUMBER], true)
+            || (in_array($first->text, ['+', '-'], true) && isset($arg[1]) && in_array($arg[1]->id, [T_LNUMBER, T_DNUMBER], true) && count($arg) === 2)) {
+            return false;
+        }
+        // Null and boolean literals.
+        if (count($arg) === 1 && $first->id === T_STRING && in_array(strtolower($first->text), ['null', 'true', 'false'], true)) {
+            return false;
+        }
+        // `new ClassName(...)`.
+        if ($first->id === T_NEW && isset($arg[1]) && $this->isName($arg[1]->text) && !in_array(strtolower($arg[1]->text), ['self', 'parent', 'static'], true)) {
+            if ($codebase === null) {
+                return true;
+            }
+            $resolved = $this->resolve($arg[1]->text, $at);
+            return LegacyMockCalls::isTypeCompatibleWithPlainCall($codebase, $methodLower, Type::namedObject($resolved));
+        }
+        // Single variable `$var`: resolve parameter type in enclosing scope if available.
+        if (count($arg) === 1 && $first->id === T_VARIABLE && $codebase !== null) {
+            $scope = $this->enclosing($at, ['method', 'function']);
+            if ($scope !== null && $scope['name'] !== null) {
+                $fnId = $scope['kind'] === 'method' && $owner !== null
+                    ? new FunctionLikeIdentifier(FunctionLikeKind::Method, $scope['name'], $owner)
+                    : ($scope['kind'] === 'function' ? new FunctionLikeIdentifier(FunctionLikeKind::Function_, $scope['name']) : null);
+                if ($fnId !== null) {
+                    foreach ($codebase->getFunctionLike($fnId)?->parameters ?? [] as $parameter) {
+                        if (ltrim($parameter->name, '$') === substr($first->text, 1)) {
+                            return LegacyMockCalls::isTypeCompatibleWithPlainCall($codebase, $methodLower, $parameter->type?->type);
+                        }
+                    }
+                }
+            }
+            return true;
+        }
+        // `$this->prop` property access.
+        if (count($arg) === 3 && $first->text === '$this' && $arg[1]->text === '->' && $arg[2]->id === T_STRING && $owner !== null && $codebase !== null) {
+            $propType = $codebase->getProperty($owner, '$' . $arg[2]->text)?->type?->type;
+            return LegacyMockCalls::isTypeCompatibleWithPlainCall($codebase, $methodLower, $propType);
+        }
+
+        return true;
     }
 }

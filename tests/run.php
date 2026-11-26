@@ -424,6 +424,13 @@ $closureCounterIssues = $closureProviderSupported
     ];
 $expected[false]['tests/fixtures/DataProviderClosureCounter.php'] = $closureCounterIssues;
 $expected[true]['tests/fixtures/DataProviderClosureCounter.php'] = $closureCounterIssues;
+$expected[false]['tests/fixtures/PlainMockCallContracts.php'] = [
+    'alfredbez/phpunit/mock-call-on-plain-type' => 8,
+    'non-existent-method' => 15,
+];
+$expected[true]['tests/fixtures/PlainMockCallContracts.php'] = [
+    'non-existent-method' => 23,
+];
 
 foreach ([false => 'with extension', true => '--no-extensions'] as $disabled => $label) {
     $issues = $disabled ? $without : $with;
@@ -542,6 +549,39 @@ $failures += assertMessageCount(
     '$ready',
     1,
 );
+$failures += assertMessageCount(
+    'with extension',
+    $with,
+    'tests/fixtures/PlainMockCallContracts.php',
+    'alfredbez/phpunit/mock-call-on-plain-type',
+    'PHPUnit expects() called on plain type',
+    4,
+);
+$failures += assertMessageCount(
+    'with extension',
+    $with,
+    'tests/fixtures/PlainMockCallContracts.php',
+    'alfredbez/phpunit/mock-call-on-plain-type',
+    'PHPUnit method() called on plain type',
+    4,
+);
+foreach ([27, 28, 29, 30, 39, 40, 41, 42] as $expectedPlainLine) {
+    $matchedLine = false;
+    foreach ($with as $issue) {
+        if (
+            $issue['file'] === 'tests/fixtures/PlainMockCallContracts.php'
+            && $issue['code'] === 'alfredbez/phpunit/mock-call-on-plain-type'
+            && $issue['line'] === $expectedPlainLine
+        ) {
+            $matchedLine = true;
+            break;
+        }
+    }
+    if (!$matchedLine) {
+        $failures++;
+        fwrite(STDERR, "FAIL with extension  tests/fixtures/PlainMockCallContracts.php:{$expectedPlainLine} expected mock-call-on-plain-type\n");
+    }
+}
 $failures += assertMessageCount(
     'with extension',
     $with,

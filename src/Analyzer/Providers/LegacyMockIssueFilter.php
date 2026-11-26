@@ -84,7 +84,8 @@ final class LegacyMockIssueFilter implements IssueFilterHook
                 }
             }
         }
-        if ($type !== null && count($type->atomicTypes) === 1 && $type->atomicTypes[0] instanceof NamedObjectType
+        if ($declaration['plainCallCompatible']
+            && $type !== null && count($type->atomicTypes) === 1 && $type->atomicTypes[0] instanceof NamedObjectType
             && strcasecmp($type->atomicTypes[0]->name, $match[2]) === 0
             && LegacyMockCalls::isTestClass($context->codebase, $declaration['class'])
             && LegacyMockCalls::isPlainMockTarget($context->codebase, $match[2], $match[1])) {

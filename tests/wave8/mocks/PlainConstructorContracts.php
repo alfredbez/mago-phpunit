@@ -73,7 +73,7 @@ final class ConstructorCalls extends CaseBase
     public function direct(): void
     {
         (new Target())->method('run'); // constructor-direct-method
-        new Target()->expects(null); // constructor-direct-expects
+        new Target()->expects(self::once()); // constructor-direct-expects
         (((new \Wave8Constructor\ConstructedService)))->method('run'); // constructor-wrapped
         (new Target([fn () => new Target(), ['nested']]))->method('run'); // constructor-arguments
         (new namespace\ConstructedService())->method('run'); // constructor-namespace-relative
@@ -88,7 +88,7 @@ final class ConstructorCalls extends CaseBase
     public function assignedExpects(): void
     {
         $plain = (new \Wave8Constructor\ConstructedService());
-        $plain->expects(null); // constructor-assigned-expects
+        $plain->expects(self::once()); // constructor-assigned-expects
     }
 
     public function reference(): void
@@ -121,7 +121,7 @@ final class ConstructorCalls extends CaseBase
     {
         $this->makeTarget()->method('run'); // constructor-factory-this-direct
         $plain = $this->makeTarget();
-        $plain->expects(null); // constructor-factory-this-assigned
+        $plain->expects(self::once()); // constructor-factory-this-assigned
         TargetFactory::create()->method('run'); // constructor-factory-static
         static::makeStaticTarget()->method('run'); // constructor-factory-static-final
         makeTargetFunction()->method('run'); // constructor-factory-function

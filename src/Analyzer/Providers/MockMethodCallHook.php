@@ -16,10 +16,13 @@ use Mago\Sdk\Analyzer\Type\Visibility;
 use Mago\Sdk\Reporting\Issue;
 use Mago\Sdk\Reporting\Level;
 use Mago\Sdk\SourceLocation;
+use Mago\Sdk\Syntax\Node;
+use Mago\Sdk\Syntax\NodeKind;
+use Mago\Sdk\Syntax\SourceFile;
 
 /**
- * Validates literal method names passed to PHPUnit MockObject::method() and Stub::method()
- * against the mocked class or interface(s).
+ * Validates literal method names passed to PHPUnit MockObject::method(), Stub::method(),
+ * and InvocationMocker/InvocationStubber::method() against the mocked class or interface(s).
  *
  * @internal
  */
@@ -32,6 +35,8 @@ final class MockMethodCallHook implements MethodCallAnalysisHook
         'phpunit\\framework\\mockobject\\stub' => true,
         'phpunit\\framework\\mockobject\\rule\\invocationorder' => true,
         'phpunit\\framework\\mockobject\\builder\\invocationmocker' => true,
+        'phpunit\\framework\\mockobject\\builder\\invocationstubber' => true,
+        'phpunit\\framework\\mockobject\\invocationstubber' => true,
     ];
 
     private const TRAVERSABLE_ITERATOR_METHODS = [
@@ -47,6 +52,9 @@ final class MockMethodCallHook implements MethodCallAnalysisHook
         return [
             MethodTarget::exact('PHPUnit\\Framework\\MockObject\\MockObject', 'method'),
             MethodTarget::exact('PHPUnit\\Framework\\MockObject\\Stub', 'method'),
+            MethodTarget::exact('PHPUnit\\Framework\\MockObject\\InvocationStubber', 'method'),
+            MethodTarget::exact('PHPUnit\\Framework\\MockObject\\Builder\\InvocationStubber', 'method'),
+            MethodTarget::exact('PHPUnit\\Framework\\MockObject\\Builder\\InvocationMocker', 'method'),
         ];
     }
 
@@ -56,6 +64,8 @@ final class MockMethodCallHook implements MethodCallAnalysisHook
             FileAnalysisRequirement::ReceiverType,
             FileAnalysisRequirement::ArgumentTypes,
             FileAnalysisRequirement::SourceText,
+            FileAnalysisRequirement::TargetSubtree,
+            FileAnalysisRequirement::ExpressionTypes,
         ];
     }
 
@@ -71,7 +81,7 @@ final class MockMethodCallHook implements MethodCallAnalysisHook
             return;
         }
 
-        $doubleGroups = self::extractDoubleGroups($context->receiverType);
+        $doubleGroups = $this->resolveDoubleGroups($context);
         if ($doubleGroups === []) {
             return;
         }
@@ -226,6 +236,89 @@ final class MockMethodCallHook implements MethodCallAnalysisHook
         }
 
         return $groups;
+    }
+
+    /**
+     * Resolves the mocked class/interface groups from either the direct receiver type
+     * (`$mock->method(...)`) or the fluent `expects()` receiver chain
+     * (`$mock->expects(...)->method(...)`).
+     *
+     * @return list<non-empty-list<string>>
+     */
+    private function resolveDoubleGroups(NodeAnalysisContext $context): array
+    {
+        if ($context->receiverType instanceof Type) {
+            $direct = self::extractDoubleGroups($context->receiverType);
+            if ($direct !== []) {
+                return $direct;
+            }
+        }
+
+        $source = $context->source;
+        $current = $context->node;
+        for ($depth = 0; $depth < 8; ++$depth) {
+            $rawReceiver = $source->getChildren($current)[0] ?? null;
+            $receiver = $this->unwrap($source, $rawReceiver);
+            if ($rawReceiver === null || $receiver === null) {
+                return [];
+            }
+
+            if ($depth > 0) {
+                $candidateType = $context->analysis->getExpressionType($rawReceiver)
+                    ?? $context->analysis->getExpressionType($receiver);
+                if ($candidateType instanceof Type) {
+                    $groups = self::extractDoubleGroups($candidateType);
+                    if ($groups !== []) {
+                        return $groups;
+                    }
+                }
+            }
+
+            if ($receiver->kind !== NodeKind::MethodCall) {
+                return [];
+            }
+
+            $called = strtolower($this->calledMethodName($source, $receiver) ?? '');
+            if (!in_array($called, ['expects', 'id', 'after'], true)) {
+                return [];
+            }
+
+            $current = $receiver;
+        }
+
+        return [];
+    }
+
+    private function calledMethodName(SourceFile $source, Node $call): ?string
+    {
+        $children = $source->getChildren($call);
+        $member = $children[1] ?? null;
+        if ($member === null) {
+            return null;
+        }
+        $selector = $source->getChildren($member)[0] ?? null;
+        if ($selector === null || $selector->kind !== NodeKind::LocalIdentifier) {
+            return null;
+        }
+
+        return $source->getText($selector);
+    }
+
+    private function unwrap(SourceFile $source, ?Node $node): ?Node
+    {
+        while (
+            $node !== null
+            && (
+                $node->kind === NodeKind::Expression
+                || $node->kind === NodeKind::Call
+                || $node->kind === NodeKind::Parenthesized
+                || $node->kind === NodeKind::Variable
+            )
+        ) {
+            $node = $source->getChildren($node)[0] ?? null;
+        }
+
+        return $node;
     }
 
     private function isDirectTraversableWithoutAggregate(string $className, ClassLikeMetadata $meta): bool

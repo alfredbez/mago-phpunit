@@ -451,6 +451,15 @@ $expected[true]['tests/fixtures/AssertionNarrowingGuards.php'] = [
     'possibly-invalid-argument' => 3,
     'possibly-undefined-string-array-index' => 4,
 ];
+$expected[false]['tests/fixtures/MockExpectsAndReceiverChains.php'] = [
+    'alfredbez/phpunit/phpunit-incompatible-mock-return' => 5,
+    'alfredbez/phpunit/phpunit-unknown-mocked-method' => 11,
+    'mixed-method-access' => 2,
+];
+$expected[true]['tests/fixtures/MockExpectsAndReceiverChains.php'] = [
+    'mixed-method-access' => 2,
+    'uninitialized-property' => 1,
+];
 
 foreach ([false => 'with extension', true => '--no-extensions'] as $disabled => $label) {
     $issues = $disabled ? $without : $with;

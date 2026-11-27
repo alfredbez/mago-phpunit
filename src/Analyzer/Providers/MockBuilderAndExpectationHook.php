@@ -415,6 +415,15 @@ final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
                 break;
             }
 
+            if ($methodName !== null) {
+                $candidateType = $context->analysis->getExpressionType($rawReceiver)
+                    ?? $context->analysis->getExpressionType($receiver);
+                if ($candidateType instanceof Type && self::extractDoubleGroups($candidateType) !== []) {
+                    $mockReceiver = $rawReceiver;
+                    break;
+                }
+            }
+
             if ($receiver->kind !== NodeKind::MethodCall) {
                 $mockReceiver = $rawReceiver;
                 break;
@@ -432,6 +441,13 @@ final class MockBuilderAndExpectationHook implements MethodCallAnalysisHook
                     return null;
                 }
                 $methodName = $literal;
+                $current = $receiver;
+                continue;
+            }
+
+            if ($methodName !== null && !in_array($name, ['expects', 'id', 'after'], true)) {
+                $mockReceiver = $rawReceiver;
+                break;
             }
 
             $current = $receiver;

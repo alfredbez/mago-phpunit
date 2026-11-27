@@ -12,5 +12,9 @@ final class PartialContracts extends TestCase
         $partial->method('dynamicAdded'); // partial-unknown
         $partial->method('locked'); // partial-final
         $partial->method('hidden'); // partial-private
+        $partial->expects(self::never())->method('guarded'); // partial-expects-protected
+        $partial->expects(self::never())->method('dynamicAdded'); // partial-expects-unknown
+        $partial->expects(self::never())->method('locked'); // partial-expects-final
+        $partial->expects(self::never())->method('hidden'); // partial-expects-private
     }
 }

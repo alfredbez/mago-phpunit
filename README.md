@@ -192,7 +192,7 @@ The checks cover typed argument tokens and `willReturn()`, `willReturnArgument()
 
 ### Data providers
 
-Providers, TestWith, TestWithJson, dependencies, inherited methods, external classes, and cross-file providers are checked. A test is empty only when every known local provider is empty. PHPUnit 13's `skipWhenEmpty: true` is honored. Duplicate dataset names, PHPUnit 11+ TestWith keys, and PHPUnit 13 empty keys follow the installed runtime contract. Docblock `@testWith` JSON is checked on PHPUnit 10.5 and 11.5 when the method has no PHPUnit attributes.
+Providers, TestWith, TestWithJson, dependencies, inherited methods, external classes, and cross-file providers are checked (cross-file inherited and trait resolution applies to `#[DataProvider]` and `#[DataProviderExternal]` attributes; legacy docblock `@dataProvider` stays same-file). A test is empty only when every known local provider is empty. PHPUnit 13's `skipWhenEmpty: true` is honored. Duplicate dataset names, PHPUnit 11+ TestWith keys, and PHPUnit 13 empty keys follow the installed runtime contract. Docblock `@testWith` JSON is checked on PHPUnit 10.5 and 11.5 when the method has no PHPUnit attributes.
 
 `#[DataProviderClosure]` requires PHPUnit 13.1+, PHP 8.5 at runtime, and `php-version = "8.5"`. Non-literal provider bodies, helper calls, open row shapes, and closures with captures remain conservative. Provider data does not infer undeclared test parameter types.
 

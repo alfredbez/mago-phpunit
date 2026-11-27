@@ -9,6 +9,11 @@ use PHPUnit\Framework\TestCase;
 abstract class AbstractContractBase extends TestCase
 {
     abstract public function testAbstractContract(): void;
+
+    public function testOverriddenParent(): void
+    {
+        $this->assertTrue(true);
+    }
 }
 
 final class StaticAndAbstract extends AbstractContractBase
@@ -16,6 +21,11 @@ final class StaticAndAbstract extends AbstractContractBase
     public function testAbstractContract(): void
     {
         $this->assertTrue(true);
+    }
+
+    public function testOverriddenParent(): void
+    {
+        parent::testOverriddenParent();
     }
 
     public function testInstanceScopes(bool $value): void

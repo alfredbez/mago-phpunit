@@ -241,7 +241,11 @@ final class PhpUnitRule implements Rule
             return;
         }
         $methodText = $context->file->getText($name);
-        if (!str_starts_with($methodText, 'test') || $file->hasParentMethod($class, $methodText)) {
+        if (
+            !str_starts_with($methodText, 'test')
+            || $file->hasParentMethod($class, $methodText)
+            || $file->hasChildOverride($class, $methodText)
+        ) {
             return;
         }
         foreach ($context->file->getChildren($method) as $child) {

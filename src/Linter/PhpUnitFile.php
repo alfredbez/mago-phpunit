@@ -149,6 +149,26 @@ final class PhpUnitFile
         return false;
     }
 
+    public function hasChildOverride(int $class, string $name): bool
+    {
+        $lower = strtolower($name);
+        foreach ($this->classes as $candidateId => $candidate) {
+            if ($candidateId === $class || !isset($candidate['methods'][$lower])) {
+                continue;
+            }
+            $seen = [$candidateId => true];
+            $parent = $this->classNames[strtolower($candidate['parent'])] ?? -1;
+            while (isset($this->classes[$parent]) && !isset($seen[$parent])) {
+                if ($parent === $class) {
+                    return true;
+                }
+                $seen[$parent] = true;
+                $parent = $this->classNames[strtolower($this->classes[$parent]['parent'])] ?? -1;
+            }
+        }
+        return false;
+    }
+
     /** @return list<Node> */
     public function arguments(Node $list): array
     {

@@ -292,8 +292,10 @@ try {
     linterCheck(
         str_contains($fixedAttributeFile, 'abstract public function testAbstractContract(): void;')
         && str_contains($fixedAttributeFile, 'public function testAbstractContract(): void')
+        && substr_count($fixedAttributeFile, 'public function testOverriddenParent(): void') === 2
+        && !str_contains($fixedAttributeFile, 'function overriddenParent(')
         && str_contains($fixedAttributeFile, 'public function instanceScopes(bool $value): void'),
-        'prefer-test-attribute autofix must preserve abstract test methods and concrete overrides while renaming standalone concrete tests.',
+        'prefer-test-attribute autofix must preserve abstract methods and concrete parent/child overrides while renaming standalone concrete tests.',
     );
     $loadCheck = linterCommand([
         PHP_BINARY,
@@ -315,8 +317,10 @@ try {
     linterCheck(
         $listTests['exit'] === 0
         && str_contains($listTests['stdout'], 'StaticAndAbstract::testAbstractContract')
+        && str_contains($listTests['stdout'], 'StaticAndAbstract::testOverriddenParent')
+        && !str_contains($listTests['stdout'], 'StaticAndAbstract::overriddenParent')
         && str_contains($listTests['stdout'], 'StaticAndAbstract::instanceScopes'),
-        'PHPUnit must still discover both the concrete override and the renamed #[Test] method after autofix: ' . $listTests['stdout'] . $listTests['stderr'],
+        'PHPUnit must discover each overridden test once alongside the renamed #[Test] method after autofix: ' . $listTests['stdout'] . $listTests['stderr'],
     );
     unlink($directory . '/StaticAndAbstract.php');
     linterReset();

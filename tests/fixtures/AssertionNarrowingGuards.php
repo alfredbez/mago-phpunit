@@ -265,4 +265,28 @@ final class AssertionNarrowingGuardsTest extends TestCase
 
         return $headers->count();
     }
+
+    /** @param array<string, string>|null $maybe */
+    public function testArrayHasKeyOnNullableArrayStillNarrows(?array $maybe): string
+    {
+        $this->assertArrayHasKey('data', $maybe);
+
+        return $maybe['data'];
+    }
+
+    /** @param array<string, string>|object $decoded */
+    public function testArrayHasKeyOnArrayOrObjectStillNarrows(array|object $decoded): string
+    {
+        $this->assertArrayHasKey('data', $decoded);
+
+        return $decoded['data'];
+    }
+
+    /** @param array<string, string>|null|false $maybe */
+    public function testArrayHasKeyOnNullableOrFalseArrayStillNarrows(array|null|false $maybe): string
+    {
+        $this->assertArrayHasKey('data', $maybe);
+
+        return $maybe['data'];
+    }
 }

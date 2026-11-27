@@ -31,6 +31,7 @@ use Mago\Sdk\Analyzer\Type\IterableType;
 use Mago\Sdk\Analyzer\Type\KeyedArrayType;
 use Mago\Sdk\Analyzer\Type\ListType;
 use Mago\Sdk\Analyzer\Type\MixedType;
+use Mago\Sdk\Analyzer\Type\NamedObjectType;
 use Mago\Sdk\Analyzer\Type\ObjectProperty;
 use Mago\Sdk\Analyzer\Type\ObjectShapeType;
 use Mago\Sdk\Analyzer\Type\ResourceType;
@@ -422,8 +423,8 @@ final class PhpUnitMethodAssertions implements MethodAssertionProvider
     }
 
     /**
-     * Returns true when every union branch is an array, `mixed`, or a generic parameter constrained to those.
-     * Excludes `iterable` and `ArrayAccess` objects that Mago reconciles to `never` under array-key assertions.
+     * Returns true when the type has at least one array, `mixed`, or array-constrained generic branch
+     * and contains no `iterable` or named-object (`ArrayAccess`) branch that Mago reconciles to `never`.
      */
     public static function isArrayOrMixedType(Type $type, int $depth = 0): bool
     {
@@ -431,18 +432,24 @@ final class PhpUnitMethodAssertions implements MethodAssertionProvider
             return false;
         }
 
+        $hasArrayOrMixed = false;
         foreach ($type->atomicTypes as $atomic) {
+            if ($atomic instanceof IterableType || $atomic instanceof NamedObjectType) {
+                return false;
+            }
             if ($atomic instanceof ListType || $atomic instanceof KeyedArrayType || $atomic instanceof MixedType) {
+                $hasArrayOrMixed = true;
                 continue;
             }
-            if ($atomic instanceof GenericParameterType && self::isArrayOrMixedType($atomic->constraint, $depth + 1)) {
-                continue;
+            if ($atomic instanceof GenericParameterType) {
+                if (!self::isArrayOrMixedType($atomic->constraint, $depth + 1)) {
+                    return false;
+                }
+                $hasArrayOrMixed = true;
             }
-
-            return false;
         }
 
-        return true;
+        return $hasArrayOrMixed;
     }
 
     /**

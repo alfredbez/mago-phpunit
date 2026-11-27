@@ -439,16 +439,25 @@ $expected[true]['tests/fixtures/AliasedAssertionFunctions.php'] = [];
 $expected[false]['tests/fixtures/AssertionNarrowingGuards.php'] = [
     'invalid-array-access' => 3,
     'invalid-return-statement' => 1,
+    'less-specific-argument' => 1,
     'mixed-assignment' => 5,
+    'possibly-false-argument' => 1,
     'possibly-invalid-argument' => 5,
+    'possibly-null-argument' => 2,
     'undefined-string-array-index' => 3,
 ];
 $expected[true]['tests/fixtures/AssertionNarrowingGuards.php'] = [
     'invalid-array-access' => 3,
-    'invalid-return-statement' => 8,
+    'invalid-return-statement' => 10,
+    'less-specific-argument' => 1,
     'mixed-assignment' => 5,
-    'nullable-return-statement' => 2,
+    'nullable-return-statement' => 4,
+    'possibly-false-argument' => 1,
+    'possibly-false-array-access' => 1,
     'possibly-invalid-argument' => 5,
+    'possibly-invalid-array-access' => 1,
+    'possibly-null-argument' => 2,
+    'possibly-null-array-access' => 2,
     'possibly-undefined-string-array-index' => 5,
 ];
 $expected[false]['tests/fixtures/MockExpectsAndReceiverChains.php'] = [

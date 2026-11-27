@@ -6,6 +6,21 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-27
+
+### Added
+
+- `MockMethodCallHook` validates `expects()->method()` targets across `InvocationStubber::method`, `Builder\InvocationStubber::method`, and `Builder\InvocationMocker::method` (covering PHPUnit 10 through 13) with fluent `expects()`, `id()`, and `after()` receiver recovery, while preserving partial-mock suppression and conservative fallback on unresolved receivers.
+- `MockBuilderAndExpectationHook::resolveMockMethodChain()` validates `willReturn()` and `willReturnOnConsecutiveCalls()` chains rooted at method-call mock receivers (such as `$this->createMock(Foo::class)->method(...)->willReturn(...)` and helper factories).
+- `DataProviderArguments` indexes `NodeKind::Trait` alongside classes without descending into method bodies and resolves trait-defined, `insteadof`-disambiguated, cross-file trait, and cross-file inherited `#[DataProvider]` and `#[DataProviderExternal]` methods deterministically across single-worker and multi-worker runs.
+
+### Fixed
+
+- `PhpUnitMethodAssertions::contains()` and `isList()` collect sealed `ListType::$knownElements` and skip `never` fallback element types so `assertContains($value, [1, 2])` no longer narrows `$value` to `never`.
+- `PhpUnitMethodAssertions` and `AssertArrayHasKeyAssertion` guard against immutable constant expressions (including reserved-keyword class constants) so assertions on class constants do not corrupt constant types to `mixed`, and exclude `iterable` and named-object (`ArrayAccess`) arguments while retaining array-key narrowing on plain arrays, templated arrays, `mixed`, and nullable or object-union arrays.
+- `PhpUnitRule::assertionStyle()` returns early for `assertion-style-this` inside static methods, static closures, and static arrow functions where `$this` is unavailable.
+- `PhpUnitRule::testAttribute()` skips `abstract` methods and same-file overridden parent or child `test*()` methods so `prefer-test-attribute` autofixes preserve valid PHP inheritance and PHPUnit test discovery.
+
 ## [1.0.1] - 2026-11-26
 
 ### Fixed

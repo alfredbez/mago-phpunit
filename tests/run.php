@@ -436,6 +436,21 @@ $expected[false]['tests/fixtures/AliasedAssertionFunctions.php'] = [
     'alfredbez/phpunit/redundant-assertion' => 1,
 ];
 $expected[true]['tests/fixtures/AliasedAssertionFunctions.php'] = [];
+$expected[false]['tests/fixtures/AssertionNarrowingGuards.php'] = [
+    'invalid-array-access' => 2,
+    'invalid-return-statement' => 1,
+    'mixed-assignment' => 4,
+    'possibly-invalid-argument' => 3,
+    'undefined-string-array-index' => 3,
+];
+$expected[true]['tests/fixtures/AssertionNarrowingGuards.php'] = [
+    'invalid-array-access' => 2,
+    'invalid-return-statement' => 7,
+    'mixed-assignment' => 4,
+    'nullable-return-statement' => 1,
+    'possibly-invalid-argument' => 3,
+    'possibly-undefined-string-array-index' => 4,
+];
 
 foreach ([false => 'with extension', true => '--no-extensions'] as $disabled => $label) {
     $issues = $disabled ? $without : $with;
@@ -457,6 +472,14 @@ $failures += assertMessageCount(
     'undefined-string-array-index',
     "key 'k'",
     2,
+);
+$failures += assertMessageCount(
+    'with extension',
+    $with,
+    'tests/fixtures/AssertionNarrowingGuards.php',
+    'invalid-return-statement',
+    'expected `int(3)`, but found `int(1)|int(2)`',
+    1,
 );
 $failures += assertMessageCount(
     '--no-extensions',

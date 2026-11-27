@@ -121,6 +121,11 @@ final class PhpUnitMethodAssertions implements MethodAssertionProvider
             return null;
         }
 
+        $arrayArg = $context->invocation->getArgument(1, 'array');
+        if ($arrayArg === null || !self::isNarrowableArrayExpression($arrayArg->expression)) {
+            return null;
+        }
+
         return new InvocationAssertions(
             assertions: [
                 '$array' => [
@@ -204,14 +209,9 @@ final class PhpUnitMethodAssertions implements MethodAssertionProvider
         $values = [];
         foreach ($haystack->atomicTypes as $atomic) {
             if ($atomic instanceof ListType) {
-                $values[] = $atomic->elementType;
+                self::collectListValues($atomic, $values);
             } elseif ($atomic instanceof KeyedArrayType) {
-                if ($atomic->valueType !== null) {
-                    $values[] = $atomic->valueType;
-                }
-                foreach ($atomic->knownItems ?? [] as $item) {
-                    $values[] = $item->type;
-                }
+                self::collectKeyedArrayValues($atomic, $values);
             } else {
                 return null;
             }
@@ -322,14 +322,9 @@ final class PhpUnitMethodAssertions implements MethodAssertionProvider
         $values = [];
         foreach ($actual->atomicTypes as $atomic) {
             if ($atomic instanceof ListType) {
-                $values[] = $atomic->elementType;
+                self::collectListValues($atomic, $values);
             } elseif ($atomic instanceof KeyedArrayType) {
-                if ($atomic->valueType !== null) {
-                    $values[] = $atomic->valueType;
-                }
-                foreach ($atomic->knownItems ?? [] as $item) {
-                    $values[] = $item->type;
-                }
+                self::collectKeyedArrayValues($atomic, $values);
             } elseif ($atomic instanceof MixedType) {
                 $values[] = Type::mixed();
             }
@@ -377,6 +372,102 @@ final class PhpUnitMethodAssertions implements MethodAssertionProvider
     private static function union(array $types): Type
     {
         return count($types) === 1 ? $types[0] : Type::union(...$types);
+    }
+
+    /** @param list<Type> $values */
+    private static function collectListValues(ListType $atomic, array &$values): void
+    {
+        foreach ($atomic->knownElements ?? [] as $element) {
+            $values[] = $element->type;
+        }
+        if (!self::isNever($atomic->elementType)) {
+            $values[] = $atomic->elementType;
+        }
+    }
+
+    /** @param list<Type> $values */
+    private static function collectKeyedArrayValues(KeyedArrayType $atomic, array &$values): void
+    {
+        if ($atomic->valueType !== null && !self::isNever($atomic->valueType)) {
+            $values[] = $atomic->valueType;
+        }
+        foreach ($atomic->knownItems ?? [] as $item) {
+            $values[] = $item->type;
+        }
+    }
+
+    private static function isNever(Type $type): bool
+    {
+        return count($type->atomicTypes) === 1
+            && $type->atomicTypes[0] instanceof SimpleAtomicType
+            && $type->atomicTypes[0]->kind === SimpleAtomicTypeKind::Never;
+    }
+
+    public static function isNarrowableArrayExpression(string $expression): bool
+    {
+        $trimmed = trim($expression);
+        if ($trimmed === '' || !str_contains($trimmed, '$')) {
+            return false;
+        }
+
+        $tokens = [];
+        foreach (token_get_all('<?php ' . $trimmed) as $token) {
+            if (is_array($token) && in_array($token[0], [T_OPEN_TAG, T_WHITESPACE, T_COMMENT, T_DOC_COMMENT], true)) {
+                continue;
+            }
+            $tokens[] = $token;
+        }
+
+        while (count($tokens) >= 2 && $tokens[0] === '(' && $tokens[count($tokens) - 1] === ')') {
+            $depth = 0;
+            $wrapsAll = true;
+            $last = count($tokens) - 1;
+            for ($i = 0; $i < $last; ++$i) {
+                if ($tokens[$i] === '(') {
+                    ++$depth;
+                } elseif ($tokens[$i] === ')') {
+                    --$depth;
+                    if ($depth === 0) {
+                        $wrapsAll = false;
+                        break;
+                    }
+                }
+            }
+            if (!$wrapsAll) {
+                break;
+            }
+            $tokens = array_slice($tokens, 1, -1);
+        }
+
+        $depth = 0;
+        $hasTopLevelVariable = false;
+        $count = count($tokens);
+        for ($i = 0; $i < $count; ++$i) {
+            $token = $tokens[$i];
+            if ($token === '(' || $token === '[' || $token === '{') {
+                ++$depth;
+                continue;
+            }
+            if ($token === ')' || $token === ']' || $token === '}') {
+                $depth = max(0, $depth - 1);
+                continue;
+            }
+            if ($depth !== 0 || !is_array($token)) {
+                continue;
+            }
+
+            if ($token[0] === T_VARIABLE) {
+                $hasTopLevelVariable = true;
+            } elseif ($token[0] === T_DOUBLE_COLON) {
+                $next = $tokens[$i + 1] ?? null;
+                $after = $tokens[$i + 2] ?? null;
+                if ($next === '{' || (is_array($next) && $next[0] === T_STRING && $after !== '(')) {
+                    return false;
+                }
+            }
+        }
+
+        return $hasTopLevelVariable;
     }
 
     private function notEmptyAssertion(AssertionProviderContext $context): ?InvocationAssertions

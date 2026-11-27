@@ -13,9 +13,6 @@ use Mago\Sdk\Analyzer\MethodTarget;
 use Mago\Sdk\Analyzer\Type;
 use Mago\Sdk\Analyzer\Type\ArrayKey;
 use Mago\Sdk\Analyzer\Type\ArrayKeyKind;
-use Mago\Sdk\Analyzer\Type\KeyedArrayType;
-use Mago\Sdk\Analyzer\Type\ListType;
-use Mago\Sdk\Analyzer\Type\MixedType;
 
 /**
  * After assertArrayHasKey() with a literal key, that key exists on the array argument.
@@ -50,8 +47,8 @@ final class AssertArrayHasKeyAssertion implements MethodAssertionProvider
         if (
             $arrayArg === null
             || !$arrayType instanceof Type
-            || !self::isArrayOrMixedType($arrayType)
-            || !PhpUnitMethodAssertions::isNarrowableArrayExpression($arrayArg->expression)
+            || !PhpUnitMethodAssertions::isArrayOrMixedType($arrayType)
+            || !PhpUnitMethodAssertions::isNarrowableExpression($arrayArg->expression)
         ) {
             return null;
         }
@@ -63,17 +60,6 @@ final class AssertArrayHasKeyAssertion implements MethodAssertionProvider
                 ],
             ],
         );
-    }
-
-    private static function isArrayOrMixedType(Type $type): bool
-    {
-        foreach ($type->atomicTypes as $atomic) {
-            if (!$atomic instanceof ListType && !$atomic instanceof KeyedArrayType && !$atomic instanceof MixedType) {
-                return false;
-            }
-        }
-
-        return true;
     }
 
     private static function literalKey(Type $type): ?ArrayKey

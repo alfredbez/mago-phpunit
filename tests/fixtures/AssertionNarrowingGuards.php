@@ -24,6 +24,14 @@ final class AliasConstHolder
         'DE' => 'DEU',
         'FR' => 'FRA',
     ];
+
+    public const LIST = ['a', 'b'];
+
+    public const EMPTY_LIST = [];
+
+    public const DEFAULT = [
+        'DE' => 'DEU',
+    ];
 }
 
 final class AssertionNarrowingGuardsTest extends TestCase
@@ -101,6 +109,12 @@ final class AssertionNarrowingGuardsTest extends TestCase
         return count($aliases);
     }
 
+    /** @param list<string> $items */
+    private function acceptStringList(array $items): int
+    {
+        return count($items);
+    }
+
     public function testArrayNotHasKeyClassConstantDoesNotCorrupt(): int
     {
         $this->assertArrayNotHasKey('AQ', AliasConstHolder::ALIASES);
@@ -111,9 +125,32 @@ final class AssertionNarrowingGuardsTest extends TestCase
         $this->assertArrayNotHasKey('AQ', CONSTANT_ALIAS_MAP);
         $this->assertArrayNotHasKey('BL', CONSTANT_ALIAS_MAP);
 
+        $holder = new AliasConstHolder();
+        $this->assertArrayNotHasKey('AQ', $holder::DEFAULT);
+        $this->assertArrayNotHasKey('AQ', $holder::LIST);
+
         return $this->acceptAliases(AliasConstHolder::ALIASES)
             + $this->acceptAliases(self::LOCAL_ALIASES)
-            + $this->acceptAliases(CONSTANT_ALIAS_MAP);
+            + $this->acceptAliases(CONSTANT_ALIAS_MAP)
+            + $this->acceptAliases($holder::DEFAULT)
+            + $this->acceptStringList($holder::LIST);
+    }
+
+    public function testSiblingAssertionsOnClassConstantsDoNotCorrupt(): int
+    {
+        $this->assertCount(2, AliasConstHolder::LIST);
+        $c1 = $this->acceptStringList(AliasConstHolder::LIST);
+
+        $this->assertNotCount(0, AliasConstHolder::ALIASES);
+        $c2 = $this->acceptAliases(AliasConstHolder::ALIASES);
+
+        $this->assertNotEmpty(AliasConstHolder::ALIASES);
+        $c3 = $this->acceptAliases(AliasConstHolder::ALIASES);
+
+        $this->assertEmpty(AliasConstHolder::EMPTY_LIST);
+        $c4 = $this->acceptStringList(AliasConstHolder::EMPTY_LIST);
+
+        return $c1 + $c2 + $c3 + $c4;
     }
 
     /** @param array{k?: string} $local */
@@ -190,5 +227,42 @@ final class AssertionNarrowingGuardsTest extends TestCase
         $this->assertArrayHasKey('k', $union);
 
         return $union['k'];
+    }
+
+    /**
+     * @template T of array{k?: int}
+     * @param T $templated
+     */
+    public function testArrayHasKeyOnTemplatedArrayStillNarrows(array $templated): int
+    {
+        $this->assertArrayHasKey('k', $templated);
+
+        return $templated['k'];
+    }
+
+    public function testArrayNotHasKeyOnIterableDoesNotCollapse(mixed $headers): mixed
+    {
+        $this->assertIsIterable($headers);
+        $this->assertArrayNotHasKey('X-Test', $headers);
+        $val = $headers['X-Test'];
+
+        return $val;
+    }
+
+    /** @param iterable<string, string> $headers */
+    public function testArrayNotHasKeyOnPureIterableDoesNotCorrupt(iterable $headers): void
+    {
+        $this->assertArrayNotHasKey('X-Test', $headers);
+        foreach ($headers as $k => $v) {
+            $this->assertNotSame('', $k . $v);
+        }
+    }
+
+    /** @param ArrayObject<array-key, mixed> $headers */
+    public function testArrayNotHasKeyOnArrayObjectDoesNotCollapse(ArrayObject $headers): int
+    {
+        $this->assertArrayNotHasKey('X-Test', $headers);
+
+        return $headers->count();
     }
 }

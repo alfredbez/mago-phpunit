@@ -26,6 +26,7 @@ use Mago\Sdk\Analyzer\Type\CallableSignature;
 use Mago\Sdk\Analyzer\Type\CallableType;
 use Mago\Sdk\Analyzer\Type\ClassLikeStringType;
 use Mago\Sdk\Analyzer\Type\EnumType;
+use Mago\Sdk\Analyzer\Type\GenericParameterType;
 use Mago\Sdk\Analyzer\Type\IterableType;
 use Mago\Sdk\Analyzer\Type\KeyedArrayType;
 use Mago\Sdk\Analyzer\Type\ListType;
@@ -100,7 +101,7 @@ final class PhpUnitMethodAssertions implements MethodAssertionProvider
             'assertcontainsonly' => $this->containsOnly($context),
             'assertstringcontainsstring', 'assertstringcontainsstringignoringcase' => $this->stringContainsString($context),
             'assertstringstartswith', 'assertstringendswith' => $this->stringAffixAssertion($context),
-            'assertjson' => $this->jsonAssertion(),
+            'assertjson' => $this->jsonAssertion($context),
             'assertgreaterthan' => $this->integerComparisonAssertion($context, IntegerAssertionKind::IsGreaterThan, 'minimum'),
             'assertgreaterthanorequal' => $this->integerComparisonAssertion($context, IntegerAssertionKind::IsGreaterThanOrEqual, 'minimum'),
             'assertlessthan' => $this->integerComparisonAssertion($context, IntegerAssertionKind::IsLessThan, 'maximum'),
@@ -122,7 +123,13 @@ final class PhpUnitMethodAssertions implements MethodAssertionProvider
         }
 
         $arrayArg = $context->invocation->getArgument(1, 'array');
-        if ($arrayArg === null || !self::isNarrowableArrayExpression($arrayArg->expression)) {
+        $arrayType = $arrayArg?->type;
+        if (
+            $arrayArg === null
+            || !$arrayType instanceof Type
+            || !self::isArrayOrMixedType($arrayType)
+            || !self::isNarrowableExpression($arrayArg->expression)
+        ) {
             return null;
         }
 
@@ -139,6 +146,11 @@ final class PhpUnitMethodAssertions implements MethodAssertionProvider
     {
         $expectedCount = $context->invocation->getArgument(0, 'expectedCount')?->type?->getLiteralInt();
         if ($expectedCount === null || $expectedCount < 0) {
+            return null;
+        }
+
+        $haystackArg = $context->invocation->getArgument(1, 'haystack');
+        if ($haystackArg === null || !self::isNarrowableExpression($haystackArg->expression)) {
             return null;
         }
 
@@ -159,8 +171,9 @@ final class PhpUnitMethodAssertions implements MethodAssertionProvider
     private function objectHasProperty(AssertionProviderContext $context): ?InvocationAssertions
     {
         $property = $context->invocation->getArgument(0, 'propertyName')?->type?->getLiteralString();
-        $actual = $context->invocation->getArgument(1, 'object')?->type;
-        if ($property === null || $actual === null) {
+        $actualArg = $context->invocation->getArgument(1, 'object');
+        $actual = $actualArg?->type;
+        if ($property === null || $actualArg === null || $actual === null || !self::isNarrowableExpression($actualArg->expression)) {
             return null;
         }
 
@@ -187,7 +200,8 @@ final class PhpUnitMethodAssertions implements MethodAssertionProvider
     private function notSame(AssertionProviderContext $context): ?InvocationAssertions
     {
         $expected = $context->invocation->getArgument(0, 'expected')?->type;
-        if ($expected === null || !self::isSingleton($expected)) {
+        $actualArg = $context->invocation->getArgument(1, 'actual');
+        if ($expected === null || $actualArg === null || !self::isSingleton($expected) || !self::isNarrowableExpression($actualArg->expression)) {
             return null;
         }
 
@@ -201,8 +215,9 @@ final class PhpUnitMethodAssertions implements MethodAssertionProvider
 
     private function contains(AssertionProviderContext $context): ?InvocationAssertions
     {
+        $needleArg = $context->invocation->getArgument(0, 'needle');
         $haystack = $context->invocation->getArgument(1, 'haystack')?->type;
-        if ($haystack === null) {
+        if ($needleArg === null || $haystack === null || !self::isNarrowableExpression($needleArg->expression)) {
             return null;
         }
 
@@ -227,8 +242,9 @@ final class PhpUnitMethodAssertions implements MethodAssertionProvider
 
     private function notContains(AssertionProviderContext $context): ?InvocationAssertions
     {
+        $needleArg = $context->invocation->getArgument(0, 'needle');
         $haystack = $context->invocation->getArgument(1, 'haystack')?->type;
-        if ($haystack === null) {
+        if ($needleArg === null || $haystack === null || !self::isNarrowableExpression($needleArg->expression)) {
             return null;
         }
 
@@ -281,8 +297,9 @@ final class PhpUnitMethodAssertions implements MethodAssertionProvider
         if (($method?->assertions['$actual'] ?? []) !== []) {
             return null;
         }
-        $actual = $context->invocation->getArgument(0, 'actual')?->type;
-        if ($actual === null) {
+        $actualArg = $context->invocation->getArgument(0, 'actual');
+        $actual = $actualArg?->type;
+        if ($actualArg === null || $actual === null || !self::isNarrowableExpression($actualArg->expression)) {
             return null;
         }
         foreach ($actual->atomicTypes as $atomic) {
@@ -315,8 +332,9 @@ final class PhpUnitMethodAssertions implements MethodAssertionProvider
             return null;
         }
 
-        $actual = $context->invocation->getArgument(0, 'array')?->type;
-        if ($actual === null) {
+        $actualArg = $context->invocation->getArgument(0, 'array');
+        $actual = $actualArg?->type;
+        if ($actualArg === null || $actual === null || !self::isNarrowableExpression($actualArg->expression)) {
             return null;
         }
         $values = [];
@@ -403,7 +421,35 @@ final class PhpUnitMethodAssertions implements MethodAssertionProvider
             && $type->atomicTypes[0]->kind === SimpleAtomicTypeKind::Never;
     }
 
-    public static function isNarrowableArrayExpression(string $expression): bool
+    /**
+     * Returns true when every union branch is an array, `mixed`, or a generic parameter constrained to those.
+     * Excludes `iterable` and `ArrayAccess` objects that Mago reconciles to `never` under array-key assertions.
+     */
+    public static function isArrayOrMixedType(Type $type, int $depth = 0): bool
+    {
+        if ($depth > 4) {
+            return false;
+        }
+
+        foreach ($type->atomicTypes as $atomic) {
+            if ($atomic instanceof ListType || $atomic instanceof KeyedArrayType || $atomic instanceof MixedType) {
+                continue;
+            }
+            if ($atomic instanceof GenericParameterType && self::isArrayOrMixedType($atomic->constraint, $depth + 1)) {
+                continue;
+            }
+
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Returns true when the expression refers to a variable, property, or static property that can be narrowed,
+     * excluding constants, literals, and class constant fetches (including reserved-keyword constant names).
+     */
+    public static function isNarrowableExpression(string $expression): bool
     {
         $trimmed = trim($expression);
         if ($trimmed === '' || !str_contains($trimmed, '$')) {
@@ -461,7 +507,7 @@ final class PhpUnitMethodAssertions implements MethodAssertionProvider
             } elseif ($token[0] === T_DOUBLE_COLON) {
                 $next = $tokens[$i + 1] ?? null;
                 $after = $tokens[$i + 2] ?? null;
-                if ($next === '{' || (is_array($next) && $next[0] === T_STRING && $after !== '(')) {
+                if ($next === '{' || (is_array($next) && $next[0] !== T_VARIABLE && $after !== '(')) {
                     return false;
                 }
             }
@@ -474,6 +520,11 @@ final class PhpUnitMethodAssertions implements MethodAssertionProvider
     {
         $method = $context->codebase->getMethod(self::ASSERT_CLASS, 'assertNotEmpty');
         if (($method?->assertions['$actual'] ?? []) !== []) {
+            return null;
+        }
+
+        $actualArg = $context->invocation->getArgument(0, 'actual');
+        if ($actualArg === null || !self::isNarrowableExpression($actualArg->expression)) {
             return null;
         }
 
@@ -490,6 +541,11 @@ final class PhpUnitMethodAssertions implements MethodAssertionProvider
     {
         $method = $context->codebase->getMethod(self::ASSERT_CLASS, 'assertContainsOnly');
         if (($method?->assertions['$haystack'] ?? []) !== []) {
+            return null;
+        }
+
+        $haystackArg = $context->invocation->getArgument(1, 'haystack');
+        if ($haystackArg === null || !self::isNarrowableExpression($haystackArg->expression)) {
             return null;
         }
 
@@ -527,7 +583,13 @@ final class PhpUnitMethodAssertions implements MethodAssertionProvider
     private function stringContainsString(AssertionProviderContext $context): ?InvocationAssertions
     {
         $needleType = $context->invocation->getArgument(0, 'needle')?->type;
-        if (!$needleType instanceof Type || !self::isNonEmptyString($needleType)) {
+        $haystackArg = $context->invocation->getArgument(1, 'haystack');
+        if (
+            !$needleType instanceof Type
+            || !self::isNonEmptyString($needleType)
+            || $haystackArg === null
+            || !self::isNarrowableExpression($haystackArg->expression)
+        ) {
             return null;
         }
 
@@ -543,7 +605,13 @@ final class PhpUnitMethodAssertions implements MethodAssertionProvider
     private function stringAffixAssertion(AssertionProviderContext $context): ?InvocationAssertions
     {
         $affixType = $context->invocation->getArgument(0, 'prefix', 'suffix')?->type;
-        if (!$affixType instanceof Type || !self::isNonEmptyString($affixType)) {
+        $stringArg = $context->invocation->getArgument(1, 'string');
+        if (
+            !$affixType instanceof Type
+            || !self::isNonEmptyString($affixType)
+            || $stringArg === null
+            || !self::isNarrowableExpression($stringArg->expression)
+        ) {
             return null;
         }
 
@@ -556,8 +624,13 @@ final class PhpUnitMethodAssertions implements MethodAssertionProvider
         );
     }
 
-    private function jsonAssertion(): InvocationAssertions
+    private function jsonAssertion(AssertionProviderContext $context): ?InvocationAssertions
     {
+        $actualArg = $context->invocation->getArgument(0, 'actual');
+        if ($actualArg === null || !self::isNarrowableExpression($actualArg->expression)) {
+            return null;
+        }
+
         return new InvocationAssertions(
             assertions: [
                 '$actual' => [
@@ -577,8 +650,14 @@ final class PhpUnitMethodAssertions implements MethodAssertionProvider
             return null;
         }
 
-        $actualType = $context->invocation->getArgument(1, 'actual')?->type;
-        if (!$actualType instanceof Type || !self::isPureInt($actualType)) {
+        $actualArg = $context->invocation->getArgument(1, 'actual');
+        $actualType = $actualArg?->type;
+        if (
+            $actualArg === null
+            || !$actualType instanceof Type
+            || !self::isPureInt($actualType)
+            || !self::isNarrowableExpression($actualArg->expression)
+        ) {
             return null;
         }
 

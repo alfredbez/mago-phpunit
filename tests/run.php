@@ -437,19 +437,19 @@ $expected[false]['tests/fixtures/AliasedAssertionFunctions.php'] = [
 ];
 $expected[true]['tests/fixtures/AliasedAssertionFunctions.php'] = [];
 $expected[false]['tests/fixtures/AssertionNarrowingGuards.php'] = [
-    'invalid-array-access' => 2,
+    'invalid-array-access' => 3,
     'invalid-return-statement' => 1,
-    'mixed-assignment' => 4,
-    'possibly-invalid-argument' => 3,
+    'mixed-assignment' => 5,
+    'possibly-invalid-argument' => 5,
     'undefined-string-array-index' => 3,
 ];
 $expected[true]['tests/fixtures/AssertionNarrowingGuards.php'] = [
-    'invalid-array-access' => 2,
-    'invalid-return-statement' => 7,
-    'mixed-assignment' => 4,
-    'nullable-return-statement' => 1,
-    'possibly-invalid-argument' => 3,
-    'possibly-undefined-string-array-index' => 4,
+    'invalid-array-access' => 3,
+    'invalid-return-statement' => 8,
+    'mixed-assignment' => 5,
+    'nullable-return-statement' => 2,
+    'possibly-invalid-argument' => 5,
+    'possibly-undefined-string-array-index' => 5,
 ];
 $expected[false]['tests/fixtures/MockExpectsAndReceiverChains.php'] = [
     'alfredbez/phpunit/phpunit-incompatible-mock-return' => 5,
@@ -461,7 +461,7 @@ $expected[true]['tests/fixtures/MockExpectsAndReceiverChains.php'] = [
     'uninitialized-property' => 1,
 ];
 $expected[false]['tests/fixtures/DataProviderTraitAndInherited.php'] = [
-    'alfredbez/phpunit/phpunit-data-provider' => 2,
+    'alfredbez/phpunit/phpunit-data-provider' => 3,
 ];
 $expected[true]['tests/fixtures/DataProviderTraitAndInherited.php'] = [
     'alfredbez/phpunit/phpunit-data-provider' => 0,

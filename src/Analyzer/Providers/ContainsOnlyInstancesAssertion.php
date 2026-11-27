@@ -42,7 +42,8 @@ final class ContainsOnlyInstancesAssertion implements MethodAssertionProvider
         }
 
         $class = $context->invocation->getArgument(0, 'className')?->type?->getLiteralClassString();
-        if ($class === null) {
+        $haystackArg = $context->invocation->getArgument(1, 'haystack');
+        if ($class === null || $haystackArg === null || !PhpUnitMethodAssertions::isNarrowableExpression($haystackArg->expression)) {
             return null;
         }
 

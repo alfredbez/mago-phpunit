@@ -134,6 +134,21 @@ final class PhpUnitFile
         return null;
     }
 
+    public function hasParentMethod(int $class, string $name): bool
+    {
+        $lower = strtolower($name);
+        $seen = [$class => true];
+        $parent = $this->classNames[strtolower($this->classes[$class]['parent'] ?? '')] ?? -1;
+        while (isset($this->classes[$parent]) && !isset($seen[$parent])) {
+            $seen[$parent] = true;
+            if (isset($this->classes[$parent]['methods'][$lower])) {
+                return true;
+            }
+            $parent = $this->classNames[strtolower($this->classes[$parent]['parent'])] ?? -1;
+        }
+        return false;
+    }
+
     /** @return list<Node> */
     public function arguments(Node $list): array
     {

@@ -64,8 +64,8 @@ After an assertion succeeds, Mago can use the fact it proves. Method calls throu
 
 | Assertion | What Mago knows afterwards |
 | --- | --- |
-| `assertArrayHasKey()` | A literal string or integer key exists. Its value can still be null. |
-| `assertArrayNotHasKey()` | The literal key is absent. |
+| `assertArrayHasKey()` | A literal string or integer key exists on variable, property, or array expressions (excluding class constants, `iterable`, and `ArrayAccess` objects). Its value can still be null. |
+| `assertArrayNotHasKey()` | The literal key is absent on variable, property, or array expressions (excluding class constants, `iterable`, and `ArrayAccess` objects). |
 | `assertObjectHasProperty()` | An `object` or `mixed` value has the literal property. Concrete classes retain their type. |
 | `assertCount()` | A literal non-negative size is known for arrays; zero is empty and positive sizes are non-empty. Normal `count()` exposes exact array sizes. |
 | `assertNotCount()` | The literal size is excluded; excluding zero makes an array non-empty. |
@@ -214,8 +214,8 @@ All eight rules report warnings. Codes use the `alfredbez/phpunit/` prefix.
 | `use-specific-assertions` | on | Null and boolean comparisons with a dedicated assertion available. Safe for strict comparisons, potentially unsafe for loose equality. |
 | `assertion-style-static` | on | Instance or self assertions that can use static. Potentially unsafe fix. |
 | `assertion-style-self` | off | Assertions that can use self. Potentially unsafe fix. |
-| `assertion-style-this` | off | Assertions that can use this. Potentially unsafe fix where an instance is available. |
-| `prefer-test-attribute` | off | Public test-prefixed methods that can use the Test attribute. Potentially unsafe rename when the new name is valid and unoccupied. |
+| `assertion-style-this` | off | Assertions that can use `$this->` (skips static methods, static closures, and static arrow functions). Potentially unsafe fix. |
+| `prefer-test-attribute` | off | Public concrete test-prefixed methods that can use the Test attribute (skips `abstract` methods and same-file overrides). Potentially unsafe rename when the new name is valid and unoccupied. |
 | `no-assert-empty` | off | assertEmpty or assertNotEmpty. No fix. |
 | `data-provider-name-case` | off | Provider references whose spelling differs from their declaration. Safe fix. |
 

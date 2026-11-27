@@ -82,3 +82,45 @@ final class DataProviderTraitAndInheritedTest extends CrossFileBaseProviderTestC
     #[DataProviderExternal(ExternalTraitBackedProvider::class, 'invalidTraitRows')]
     public function testExternalTraitInvalid(int $n, string $label): void {}
 }
+
+trait ConflictInvalidProviderTrait
+{
+    /** @return list<array<int, mixed>> */
+    public static function conflictProviderRows(): array
+    {
+        return [
+            ['wrong-type-from-conflict-trait', 'label'],
+        ];
+    }
+}
+
+trait ConflictValidProviderTrait
+{
+    /** @return list<array{int, string}> */
+    public static function conflictProviderRows(): array
+    {
+        return [
+            [7, 'ok'],
+        ];
+    }
+}
+
+final class DataProviderTraitInsteadofValidTest extends CrossFileBaseProviderTestCase
+{
+    use ConflictInvalidProviderTrait, ConflictValidProviderTrait {
+        ConflictValidProviderTrait::conflictProviderRows insteadof ConflictInvalidProviderTrait;
+    }
+
+    #[DataProvider('conflictProviderRows')]
+    public function testInsteadofSelectsValidTrait(int $n, string $label): void {}
+}
+
+final class DataProviderTraitInsteadofInvalidTest extends CrossFileBaseProviderTestCase
+{
+    use ConflictValidProviderTrait, ConflictInvalidProviderTrait {
+        ConflictInvalidProviderTrait::conflictProviderRows insteadof ConflictValidProviderTrait;
+    }
+
+    #[DataProvider('conflictProviderRows')]
+    public function testInsteadofSelectsInvalidTrait(int $n, string $label): void {}
+}

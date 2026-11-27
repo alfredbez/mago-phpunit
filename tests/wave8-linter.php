@@ -272,7 +272,7 @@ try {
     );
     linterCheck(
         linterCounts(linterRun(['--only', $prefix . 'prefer-test-attribute', $directory . '/StaticAndAbstract.php'])) === ['prefer-test-attribute' => 1],
-        'prefer-test-attribute must skip abstract test methods while still reporting concrete ones.',
+        'prefer-test-attribute must skip abstract test methods and their concrete overrides while still reporting standalone concrete ones.',
     );
     linterFix('assertion-style-this', true);
     $fixedStaticAndAbstract = file_get_contents($directory . '/StaticAndAbstract.php');
@@ -285,6 +285,38 @@ try {
     linterCheck(
         linterRun(['--only', $prefix . 'assertion-style-this', $directory . '/StaticAndAbstract.php']) === [],
         'assertion-style-this must report zero remaining issues after autofix on StaticAndAbstract.',
+    );
+    copy($root . '/tests/linter/StaticAndAbstract.php', $directory . '/StaticAndAbstract.php');
+    linterFix('prefer-test-attribute', true);
+    $fixedAttributeFile = file_get_contents($directory . '/StaticAndAbstract.php');
+    linterCheck(
+        str_contains($fixedAttributeFile, 'abstract public function testAbstractContract(): void;')
+        && str_contains($fixedAttributeFile, 'public function testAbstractContract(): void')
+        && str_contains($fixedAttributeFile, 'public function instanceScopes(bool $value): void'),
+        'prefer-test-attribute autofix must preserve abstract test methods and concrete overrides while renaming standalone concrete tests.',
+    );
+    $loadCheck = linterCommand([
+        PHP_BINARY,
+        '-r',
+        'require ' . var_export($root . '/vendor/autoload.php', true)
+        . '; require ' . var_export($directory . '/StaticAndAbstract.php', true)
+        . '; echo (new ReflectionClass("Wave8Linter\\\\StaticAndAbstract"))->isInstantiable() ? "OK" : "FAIL";',
+    ], $directory);
+    linterCheck(
+        $loadCheck['exit'] === 0 && trim($loadCheck['stdout']) === 'OK',
+        'prefer-test-attribute autofix must keep concrete subclasses of abstract test classes instantiable: ' . $loadCheck['stdout'] . $loadCheck['stderr'],
+    );
+    $listTests = linterCommand([
+        PHP_BINARY,
+        $root . '/vendor/bin/phpunit',
+        '--list-tests',
+        $directory . '/StaticAndAbstract.php',
+    ], $directory);
+    linterCheck(
+        $listTests['exit'] === 0
+        && str_contains($listTests['stdout'], 'StaticAndAbstract::testAbstractContract')
+        && str_contains($listTests['stdout'], 'StaticAndAbstract::instanceScopes'),
+        'PHPUnit must still discover both the concrete override and the renamed #[Test] method after autofix: ' . $listTests['stdout'] . $listTests['stderr'],
     );
     unlink($directory . '/StaticAndAbstract.php');
     linterReset();

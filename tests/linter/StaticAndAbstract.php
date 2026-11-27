@@ -11,8 +11,13 @@ abstract class AbstractContractBase extends TestCase
     abstract public function testAbstractContract(): void;
 }
 
-final class StaticAndAbstract extends TestCase
+final class StaticAndAbstract extends AbstractContractBase
 {
+    public function testAbstractContract(): void
+    {
+        $this->assertTrue(true);
+    }
+
     public function testInstanceScopes(bool $value): void
     {
         self::assertTrue($value);

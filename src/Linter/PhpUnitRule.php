@@ -237,7 +237,11 @@ final class PhpUnitRule implements Rule
     private function testAttribute(LintContext $context, PhpUnitFile $file, int $class, Node $method): void
     {
         $name = $file->child($method, NodeKind::LocalIdentifier);
-        if ($name === null || !str_starts_with($context->file->getText($name), 'test')) {
+        if ($name === null) {
+            return;
+        }
+        $methodText = $context->file->getText($name);
+        if (!str_starts_with($methodText, 'test') || $file->hasParentMethod($class, $methodText)) {
             return;
         }
         foreach ($context->file->getChildren($method) as $child) {

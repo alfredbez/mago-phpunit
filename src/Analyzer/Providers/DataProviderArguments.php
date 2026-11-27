@@ -381,6 +381,44 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
             declaredOnly: true,
         );
 
+        $dataProviderTestClasses = [];
+        foreach ($methods as $testMethod) {
+            if ($testMethod->location === null || $testMethod->parameters === null || $testMethod->attributes === null) {
+                continue;
+            }
+            if ($context->analysis->getFile($testMethod->location->file) === null) {
+                continue;
+            }
+            foreach ($testMethod->attributes as $attribute) {
+                if (strtolower($attribute->name) === self::DATA_PROVIDER) {
+                    $dataProviderTestClasses[strtolower($testMethod->method->class)] = $testMethod->method->class;
+                    break;
+                }
+            }
+        }
+
+        /** @var array<string, array{canInherit: bool, ownMethods: array<string, true>}> $classOwnInfo */
+        $classOwnInfo = [];
+        if ($dataProviderTestClasses !== []) {
+            $classList = array_values($dataProviderTestClasses);
+            foreach ($context->codebase->getMultipleClasses($classList) as $index => $classMeta) {
+                $key = strtolower($classList[$index]);
+                if ($classMeta === null) {
+                    continue;
+                }
+                $ownMethods = [];
+                foreach ($classMeta->methods as $declaredMethod) {
+                    $ownMethods[strtolower($declaredMethod)] = true;
+                }
+                $canInherit = $classMeta->usedTraits !== []
+                    || strtolower($classMeta->directParentClass ?? '') !== self::TEST_CASE;
+                $classOwnInfo[$key] = [
+                    'canInherit' => $canInherit,
+                    'ownMethods' => $ownMethods,
+                ];
+            }
+        }
+
         $entries = [];
         $declaringQueries = [];
         foreach ($methods as $testMethod) {
@@ -392,6 +430,9 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
             if ($context->analysis->getFile($testFile) === null) {
                 continue;
             }
+
+            $testClassKey = strtolower($testMethod->method->class);
+            $ownInfo = $classOwnInfo[$testClassKey] ?? null;
 
             $providers = [];
             foreach ($testMethod->attributes as $attribute) {
@@ -410,6 +451,9 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
                     $providerClass = $testMethod->method->class;
                     $providerMethod = $attribute->getArgument(0, 'methodName')?->valueType?->getLiteralString();
                     if ($providerMethod === null || $providerMethod === '' || str_contains($providerMethod, '::')) {
+                        continue;
+                    }
+                    if ($ownInfo !== null && (!$ownInfo['canInherit'] || isset($ownInfo['ownMethods'][strtolower($providerMethod)]))) {
                         continue;
                     }
 
@@ -1193,6 +1237,11 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
      */
     private function locateMethod(LifecycleContext $context, array $methods, string $class, string $method): ?Node
     {
+        $declaring = $context->codebase->getDeclaringMethod($class, $method);
+        if ($declaring !== null && $declaring->identifier->class !== null) {
+            return $methods[strtolower($declaring->identifier->class)][strtolower($declaring->originalName)] ?? null;
+        }
+
         $seen = [];
         $lowerMethod = strtolower($method);
         $current = strtolower($class);
@@ -1235,6 +1284,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
         array &$seen,
     ): ?Node {
         $queue = $traits;
+        $matches = [];
         while ($queue !== []) {
             $trait = strtolower(array_shift($queue));
             if ($trait === '' || isset($seen[$trait])) {
@@ -1242,7 +1292,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
             }
             $seen[$trait] = true;
             if (isset($methods[$trait][$lowerMethod])) {
-                return $methods[$trait][$lowerMethod];
+                $matches[] = $methods[$trait][$lowerMethod];
             }
 
             $traitMeta = $context->codebase->getClassLike($trait);
@@ -1253,7 +1303,7 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
             }
         }
 
-        return null;
+        return count($matches) === 1 ? $matches[0] : null;
     }
 
     /**

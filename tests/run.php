@@ -440,6 +440,7 @@ $expected[false]['tests/fixtures/AssertionNarrowingGuards.php'] = [
     'invalid-array-access' => 3,
     'invalid-return-statement' => 1,
     'less-specific-argument' => 1,
+    ...($phpunitMajor === 10 ? ['mixed-argument' => 2] : []),
     'mixed-assignment' => 5,
     'possibly-false-argument' => 1,
     'possibly-invalid-argument' => 5,
@@ -450,6 +451,7 @@ $expected[true]['tests/fixtures/AssertionNarrowingGuards.php'] = [
     'invalid-array-access' => 3,
     'invalid-return-statement' => 10,
     'less-specific-argument' => 1,
+    ...($phpunitMajor === 10 ? ['mixed-argument' => 2] : []),
     'mixed-assignment' => 5,
     'nullable-return-statement' => 4,
     'possibly-false-argument' => 1,
@@ -463,9 +465,11 @@ $expected[true]['tests/fixtures/AssertionNarrowingGuards.php'] = [
 $expected[false]['tests/fixtures/MockExpectsAndReceiverChains.php'] = [
     'alfredbez/phpunit/phpunit-incompatible-mock-return' => 5,
     'alfredbez/phpunit/phpunit-unknown-mocked-method' => 11,
+    ...($phpunitMajor >= 13 ? ['deprecated-method' => 1] : []),
     'mixed-method-access' => 2,
 ];
 $expected[true]['tests/fixtures/MockExpectsAndReceiverChains.php'] = [
+    ...($phpunitMajor >= 13 ? ['deprecated-method' => 1] : []),
     'mixed-method-access' => 2,
     'uninitialized-property' => 1,
 ];

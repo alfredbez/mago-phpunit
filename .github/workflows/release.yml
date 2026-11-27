@@ -1,0 +1,101 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing SemVer tag to publish or update (for example v1.1.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          TAG="${INPUT_TAG:-$REF_NAME}"
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid SemVer tag: $TAG" >&2
+            exit 1
+          fi
+          VERSION="${TAG#v}"
+          PRERELEASE="false"
+          if [[ "$VERSION" == *-* ]]; then
+            PRERELEASE="true"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+
+      - name: Verify extension VERSION matches tag and extract changelog notes
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          python3 - <<'PY'
+          import os, re, sys
+
+          version = os.environ["VERSION"]
+
+          ext_file = "src/PhpUnitExtension.php"
+          ext_src = open(ext_file, encoding="utf-8").read()
+          m = re.search(r"public const VERSION = '([^']+)';", ext_src)
+          if not m:
+              sys.exit(f"Could not find VERSION constant in {ext_file}")
+          if m.group(1) != version:
+              sys.exit(f"{ext_file} VERSION ({m.group(1)}) does not match tag version ({version})")
+
+          changelog = open("CHANGELOG.md", encoding="utf-8").read()
+          header = re.compile(rf"^## \[{re.escape(version)}\](?: - .*)?$", re.MULTILINE)
+          match = header.search(changelog)
+          if not match:
+              sys.exit(f"CHANGELOG.md has no section for [{version}]")
+
+          start = match.end()
+          next_heading = re.search(r"^## \[", changelog[start:], re.MULTILINE)
+          body = changelog[start : start + next_heading.start()] if next_heading else changelog[start:]
+          body = body.strip()
+          if not body:
+              sys.exit(f"CHANGELOG.md section for [{version}] is empty")
+
+          with open("release-notes.md", "w", encoding="utf-8") as out:
+              out.write(body + "\n")
+          print(f"Verified {ext_file} VERSION={version} and extracted {len(body)} bytes from CHANGELOG.md")
+          PY
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          PRERELEASE: ${{ steps.tag.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          EXTRA_FLAGS=()
+          if [ "$PRERELEASE" = "true" ]; then
+            EXTRA_FLAGS+=(--prerelease)
+          fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "$TAG" --notes-file release-notes.md "${EXTRA_FLAGS[@]}"
+          else
+            gh release create "$TAG" --verify-tag --title "$TAG" --notes-file release-notes.md "${EXTRA_FLAGS[@]}"
+          fi

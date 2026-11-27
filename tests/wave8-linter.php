@@ -176,7 +176,7 @@ try {
     ]) === [], 'Unrelated receivers, dynamic names and already-specific assertions must stay silent.');
     foreach ([
         'assertion-style-self' => 14,
-        'assertion-style-this' => 15,
+        'assertion-style-this' => 14,
         'prefer-test-attribute' => 7,
         'no-assert-empty' => 2,
         'data-provider-name-case' => 2,
@@ -264,6 +264,29 @@ try {
         str_contains($thisStyle, 'self::assertTrue($value)'),
         'This style must not introduce $this into a static method.',
     );
+
+    copy($root . '/tests/linter/StaticAndAbstract.php', $directory . '/StaticAndAbstract.php');
+    linterCheck(
+        linterCounts(linterRun(['--only', $prefix . 'assertion-style-this', $directory . '/StaticAndAbstract.php'])) === ['assertion-style-this' => 3],
+        'assertion-style-this must skip static methods, static closures, static arrow functions, and closures inside static methods.',
+    );
+    linterCheck(
+        linterCounts(linterRun(['--only', $prefix . 'prefer-test-attribute', $directory . '/StaticAndAbstract.php'])) === ['prefer-test-attribute' => 1],
+        'prefer-test-attribute must skip abstract test methods while still reporting concrete ones.',
+    );
+    linterFix('assertion-style-this', true);
+    $fixedStaticAndAbstract = file_get_contents($directory . '/StaticAndAbstract.php');
+    linterCheck(
+        substr_count($fixedStaticAndAbstract, '$this->assertTrue($value)') === 3
+        && substr_count($fixedStaticAndAbstract, 'self::assertTrue($value)') === 2
+        && substr_count($fixedStaticAndAbstract, 'static::assertTrue($value)') === 2,
+        'assertion-style-this autofix must rewrite only bound instance calls and preserve all static-scope calls.',
+    );
+    linterCheck(
+        linterRun(['--only', $prefix . 'assertion-style-this', $directory . '/StaticAndAbstract.php']) === [],
+        'assertion-style-this must report zero remaining issues after autofix on StaticAndAbstract.',
+    );
+    unlink($directory . '/StaticAndAbstract.php');
     linterReset();
     linterFix('prefer-test-attribute', true);
     $provider = file_get_contents($directory . '/Providers.php');

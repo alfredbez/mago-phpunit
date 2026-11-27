@@ -152,13 +152,14 @@ final class PhpUnitRule implements Rule
         if ($call->style === null || $call->style === $style || $call->receiverSpan === null) {
             return;
         }
+        if ($style === 'this' && !$this->hasThis($file, $call->node)) {
+            return;
+        }
         $replacement = $style === 'this' ? '$this->' : $style . '::';
-        $issue = Issue::new("Use `{$replacement}` for PHPUnit assertions.", $call->receiverSpan);
-        if ($style !== 'this' || $this->hasThis($file, $call->node)) {
-            $issue = $issue->withEdit(TextEdit::replace($call->receiverSpan, $replacement)->withSafety(
+        $issue = Issue::new("Use `{$replacement}` for PHPUnit assertions.", $call->receiverSpan)
+            ->withEdit(TextEdit::replace($call->receiverSpan, $replacement)->withSafety(
                 Safety::PotentiallyUnsafe,
             ));
-        }
         $context->report($issue);
     }
 
@@ -166,17 +167,44 @@ final class PhpUnitRule implements Rule
     {
         foreach ($file->file->getAncestors($node) as $ancestor) {
             if (in_array($ancestor->kind, [NodeKind::Method, NodeKind::Closure, NodeKind::ArrowFunction], true)) {
-                foreach ($file->file->getChildren($ancestor) as $child) {
-                    if (
-                        in_array($child->kind, [NodeKind::Modifier, NodeKind::Keyword], true)
-                        && strtolower($file->file->getText($child)) === 'static'
-                    ) {
-                        return false;
-                    }
+                if ($this->isStaticCallable($file, $ancestor)) {
+                    return false;
                 }
                 if ($ancestor->kind === NodeKind::Method) {
                     return true;
                 }
+            }
+        }
+        return false;
+    }
+
+    private function isStaticCallable(PhpUnitFile $file, Node $ancestor): bool
+    {
+        $prefixStart = $ancestor->span->start;
+        $keywordStart = null;
+        foreach ($file->file->getChildren($ancestor) as $child) {
+            if (
+                in_array($child->kind, [NodeKind::Modifier, NodeKind::Keyword], true)
+                && strtolower($file->file->getText($child)) === 'static'
+            ) {
+                return true;
+            }
+            if ($child->kind === NodeKind::AttributeList) {
+                $prefixStart = $child->span->end;
+            } elseif ($child->kind === NodeKind::Keyword && $keywordStart === null) {
+                $keywordStart = $child->span->start;
+            }
+        }
+        if ($ancestor->kind !== NodeKind::Closure || $keywordStart === null || $keywordStart <= $prefixStart) {
+            return false;
+        }
+        $prefix = $file->file->getText(new Span($prefixStart, $keywordStart));
+        if (stripos($prefix, 'static') === false) {
+            return false;
+        }
+        foreach (token_get_all('<?php ' . $prefix) as $token) {
+            if (is_array($token) && $token[0] === T_STATIC) {
+                return true;
             }
         }
         return false;
@@ -215,7 +243,7 @@ final class PhpUnitRule implements Rule
         foreach ($context->file->getChildren($method) as $child) {
             if ($child->kind === NodeKind::Modifier) {
                 $modifier = strtolower($context->file->getText($child));
-                if (in_array($modifier, ['protected', 'private'], true)) {
+                if (in_array($modifier, ['protected', 'private', 'abstract'], true)) {
                     return;
                 }
             }

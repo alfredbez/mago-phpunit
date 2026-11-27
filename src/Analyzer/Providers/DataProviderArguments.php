@@ -369,10 +369,14 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
     {
         $needsKeyOrder = !PhpUnitVersion::supportsNamedProviderArguments($context->codebase);
 
-        // Query codebase metadata directly so cross-file #[DataProviderExternal] checks are deterministic under any worker pool size.
+        // Query codebase metadata directly so cross-file #[DataProvider] and #[DataProviderExternal]
+        // checks are deterministic under any worker pool size.
         $methods = $context->codebase->findMethods(
             descendantsOf: 'PHPUnit\\Framework\\TestCase',
-            withAnyAttribute: ['PHPUnit\\Framework\\Attributes\\DataProviderExternal'],
+            withAnyAttribute: [
+                'PHPUnit\\Framework\\Attributes\\DataProvider',
+                'PHPUnit\\Framework\\Attributes\\DataProviderExternal',
+            ],
             fields: MethodFields::NAMES | MethodFields::LOCATIONS | MethodFields::PARAMETERS | MethodFields::ATTRIBUTES,
             declaredOnly: true,
         );
@@ -391,19 +395,29 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
 
             $providers = [];
             foreach ($testMethod->attributes as $attribute) {
-                if (strtolower($attribute->name) !== self::DATA_PROVIDER_EXTERNAL) {
+                $attrName = strtolower($attribute->name);
+                if ($attrName === self::DATA_PROVIDER_EXTERNAL) {
+                    $classArg = $attribute->getArgument(0, 'className');
+                    $methodArg = $attribute->getArgument(1, 'methodName');
+                    $providerClass = $classArg?->valueType?->getLiteralClassString() ?? $classArg?->valueType?->getLiteralString();
+                    $providerMethod = $methodArg?->valueType?->getLiteralString();
+                    if ($providerClass === null || $providerClass === '' || $providerMethod === null || $providerMethod === '') {
+                        continue;
+                    }
+
+                    $validateCount = $attribute->getArgument(2, 'validateArgumentCount')?->valueType?->getLiteralBool() ?? true;
+                } elseif ($attrName === self::DATA_PROVIDER) {
+                    $providerClass = $testMethod->method->class;
+                    $providerMethod = $attribute->getArgument(0, 'methodName')?->valueType?->getLiteralString();
+                    if ($providerMethod === null || $providerMethod === '' || str_contains($providerMethod, '::')) {
+                        continue;
+                    }
+
+                    $validateCount = $attribute->getArgument(1, 'validateArgumentCount')?->valueType?->getLiteralBool() ?? true;
+                } else {
                     continue;
                 }
 
-                $classArg = $attribute->getArgument(0, 'className');
-                $methodArg = $attribute->getArgument(1, 'methodName');
-                $providerClass = $classArg?->valueType?->getLiteralClassString() ?? $classArg?->valueType?->getLiteralString();
-                $providerMethod = $methodArg?->valueType?->getLiteralString();
-                if ($providerClass === null || $providerClass === '' || $providerMethod === null || $providerMethod === '') {
-                    continue;
-                }
-
-                $validateCount = $attribute->getArgument(2, 'validateArgumentCount')?->valueType?->getLiteralBool() ?? true;
                 $providers[] = [
                     'class' => $providerClass,
                     'method' => $providerMethod,
@@ -1102,13 +1116,12 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
         $stack = [$root];
         while ($stack !== []) {
             $node = array_pop($stack);
-            if ($node->kind === NodeKind::Class_) {
+            if ($node->kind === NodeKind::Class_ || $node->kind === NodeKind::Trait) {
                 $classes[] = $node;
                 continue;
             }
             if (
                 $node->kind === NodeKind::Interface
-                || $node->kind === NodeKind::Trait
                 || $node->kind === NodeKind::Enum
                 || $node->kind === NodeKind::Function
                 || $node->kind === NodeKind::Expression
@@ -1181,18 +1194,63 @@ final class DataProviderArguments implements ClassLikeAnalysisHook, AfterAnalysi
     private function locateMethod(LifecycleContext $context, array $methods, string $class, string $method): ?Node
     {
         $seen = [];
+        $lowerMethod = strtolower($method);
         $current = strtolower($class);
         while ($current !== '' && !isset($seen[$current])) {
             $seen[$current] = true;
-            if (isset($methods[$current][strtolower($method)])) {
-                return $methods[$current][strtolower($method)];
+            if (isset($methods[$current][$lowerMethod])) {
+                return $methods[$current][$lowerMethod];
             }
             if ($current === self::TEST_CASE) {
                 break;
             }
 
-            $parent = $context->codebase->getClass($current)?->directParentClass;
+            $meta = $context->codebase->getClassLike($current);
+            if ($meta === null) {
+                break;
+            }
+
+            $fromTrait = $this->locateMethodInTraits($context, $methods, $meta->usedTraits, $lowerMethod, $seen);
+            if ($fromTrait !== null) {
+                return $fromTrait;
+            }
+
+            $parent = $meta->directParentClass;
             $current = $parent === null ? '' : strtolower($parent);
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, array<string, Node>> $methods
+     * @param list<string> $traits
+     * @param array<string, true> $seen
+     */
+    private function locateMethodInTraits(
+        LifecycleContext $context,
+        array $methods,
+        array $traits,
+        string $lowerMethod,
+        array &$seen,
+    ): ?Node {
+        $queue = $traits;
+        while ($queue !== []) {
+            $trait = strtolower(array_shift($queue));
+            if ($trait === '' || isset($seen[$trait])) {
+                continue;
+            }
+            $seen[$trait] = true;
+            if (isset($methods[$trait][$lowerMethod])) {
+                return $methods[$trait][$lowerMethod];
+            }
+
+            $traitMeta = $context->codebase->getClassLike($trait);
+            if ($traitMeta !== null) {
+                foreach ($traitMeta->usedTraits as $nested) {
+                    $queue[] = $nested;
+                }
+            }
         }
 
         return null;

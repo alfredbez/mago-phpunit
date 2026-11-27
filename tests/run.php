@@ -460,6 +460,24 @@ $expected[true]['tests/fixtures/MockExpectsAndReceiverChains.php'] = [
     'mixed-method-access' => 2,
     'uninitialized-property' => 1,
 ];
+$expected[false]['tests/fixtures/DataProviderTraitAndInherited.php'] = [
+    'alfredbez/phpunit/phpunit-data-provider' => 2,
+];
+$expected[true]['tests/fixtures/DataProviderTraitAndInherited.php'] = [
+    'alfredbez/phpunit/phpunit-data-provider' => 0,
+];
+$expected[false]['tests/fixtures/CrossFileBaseProviderTestCase.php'] = [
+    'alfredbez/phpunit/phpunit-data-provider' => 2,
+];
+$expected[true]['tests/fixtures/CrossFileBaseProviderTestCase.php'] = [
+    'alfredbez/phpunit/phpunit-data-provider' => 0,
+];
+$expected[false]['tests/fixtures/CrossFileProviderTrait.php'] = [
+    'alfredbez/phpunit/phpunit-data-provider' => 5,
+];
+$expected[true]['tests/fixtures/CrossFileProviderTrait.php'] = [
+    'alfredbez/phpunit/phpunit-data-provider' => 0,
+];
 
 foreach ([false => 'with extension', true => '--no-extensions'] as $disabled => $label) {
     $issues = $disabled ? $without : $with;
